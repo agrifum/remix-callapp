@@ -192,6 +192,7 @@ class CallOverlayService : Service() {
 
             val pastNoteContainer = view.findViewById<View>(R.id.pastNoteContainer)
             val pastNoteText = view.findViewById<TextView>(R.id.pastNoteText)
+            val pastNoteCount = view.findViewById<TextView>(R.id.pastNoteCount)
 
             val overlayNote = view.findViewById<EditText>(R.id.overlayNote)
             container.noteEditText = overlayNote
@@ -237,15 +238,17 @@ class CallOverlayService : Service() {
             if (pastNotes.isNotEmpty()) {
                 pastNoteContainer.visibility = View.VISIBLE
                 val newestNote = pastNotes.first().rawText.trim()
-                val text = if (pastNotes.size > 1) {
+                pastNoteText.text = "Poprzednia notatka: \"$newestNote\""
+                if (pastNotes.size > 1) {
                     val remainingCount = pastNotes.size - 1
-                    "Poprzednia notatka: \"$newestNote\" (+ $remainingCount wcześniejszych)"
+                    pastNoteCount.text = "+ $remainingCount wcześniejszych"
+                    pastNoteCount.visibility = View.VISIBLE
                 } else {
-                    "Poprzednia notatka: \"$newestNote\""
+                    pastNoteCount.visibility = View.GONE
                 }
-                pastNoteText.text = text
             } else {
                 pastNoteContainer.visibility = View.GONE
+                pastNoteCount.visibility = View.GONE
             }
 
             // 7 & 8. Client handling & Job gating
