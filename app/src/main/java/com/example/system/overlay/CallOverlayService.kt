@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.IBinder
@@ -24,6 +25,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -176,11 +178,15 @@ class CallOverlayService : Service() {
             val services = app.container.serviceRepository.activeServices.first()
             val existingDraft = app.container.callDraftRepository.getDraftSync(currentSessionId)
 
+            val maxAllowedHeight = (resources.displayMetrics.heightPixels * 0.70).toInt()
+            val container = OverlayContainer(this@CallOverlayService, maxAllowedHeight)
             val inflater = LayoutInflater.from(this@CallOverlayService)
-            val view = inflater.inflate(R.layout.call_overlay, null)
+            val view = inflater.inflate(R.layout.call_overlay, container, false)
+            container.addView(view)
 
             // Views lookup
             val overlayTitle = view.findViewById<TextView>(R.id.overlayTitle)
+            val overlayClientBadge = view.findViewById<TextView>(R.id.overlayClientBadge)
             val overlayPhone = view.findViewById<TextView>(R.id.overlayPhone)
             val overlayClose = view.findViewById<ImageButton>(R.id.overlayClose)
 
@@ -188,6 +194,7 @@ class CallOverlayService : Service() {
             val pastNoteText = view.findViewById<TextView>(R.id.pastNoteText)
 
             val overlayNote = view.findViewById<EditText>(R.id.overlayNote)
+            container.noteEditText = overlayNote
 
             val clientSection = view.findViewById<View>(R.id.clientSection)
             val clientCheckbox = view.findViewById<CheckBox>(R.id.clientCheckbox)
@@ -214,20 +221,29 @@ class CallOverlayService : Service() {
             // Initial state: "Do Zadań" is disabled if note is empty or only whitespace
             taskButton.isEnabled = !overlayNote.text.isNullOrBlank()
 
-            // 4. Header: Title & Phone
+            // 4. Header: Title & Phone & Client status
             if (client != null) {
                 overlayTitle.text = client.displayName
+                overlayClientBadge.visibility = View.VISIBLE
                 overlayPhone.text = display
                 overlayPhone.visibility = View.VISIBLE
             } else {
                 overlayTitle.text = display
+                overlayClientBadge.visibility = View.GONE
                 overlayPhone.visibility = View.GONE
             }
 
-            // 5. Past notes
+            // 5. Past notes (preview of latest note + count of remaining active notes)
             if (pastNotes.isNotEmpty()) {
                 pastNoteContainer.visibility = View.VISIBLE
-                pastNoteText.text = "Poprzednia notatka: \"${pastNotes.first().rawText}\""
+                val newestNote = pastNotes.first().rawText.trim()
+                val text = if (pastNotes.size > 1) {
+                    val remainingCount = pastNotes.size - 1
+                    "Poprzednia notatka: \"$newestNote\" (+ $remainingCount wcześniejszych)"
+                } else {
+                    "Poprzednia notatka: \"$newestNote\""
+                }
+                pastNoteText.text = text
             } else {
                 pastNoteContainer.visibility = View.GONE
             }
@@ -304,7 +320,7 @@ class CallOverlayService : Service() {
                 if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) != 0) {
                     params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
                     try {
-                        windowManager?.updateViewLayout(view, params)
+                        windowManager?.updateViewLayout(container, params)
                     } catch (e: Exception) {
                         // WindowManager update failed
                     }
@@ -324,11 +340,15 @@ class CallOverlayService : Service() {
                 if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) == 0) {
                     params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                     try {
-                        windowManager?.updateViewLayout(view, params)
+                        windowManager?.updateViewLayout(container, params)
                     } catch (e: Exception) {
                         // WindowManager update failed
                     }
                 }
+            }
+
+            container.onReleaseFocus = {
+                releaseOverlayFocus()
             }
 
             overlayNote.setOnTouchListener { _, event ->
@@ -341,7 +361,7 @@ class CallOverlayService : Service() {
                 requestOverlayFocus()
             }
 
-            view.setOnTouchListener { _, event ->
+            container.setOnTouchListener { _, event ->
                 if (event.action == MotionEvent.ACTION_OUTSIDE) {
                     releaseOverlayFocus()
                 }
@@ -645,11 +665,45 @@ class CallOverlayService : Service() {
             }
 
             try {
-                windowManager?.addView(view, params)
-                overlayView = view
+                windowManager?.addView(container, params)
+                overlayView = container
             } catch (e: Exception) {
                 // WindowManager add failed
             }
+        }
+    }
+
+    private class OverlayContainer(
+        context: Context,
+        private val maxHeightPx: Int
+    ) : FrameLayout(context) {
+
+        var noteEditText: EditText? = null
+        var onReleaseFocus: (() -> Unit)? = null
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val mode = MeasureSpec.getMode(heightMeasureSpec)
+            val size = MeasureSpec.getSize(heightMeasureSpec)
+            val newHeightSpec = if (mode == MeasureSpec.UNSPECIFIED || size > maxHeightPx) {
+                MeasureSpec.makeMeasureSpec(maxHeightPx, MeasureSpec.AT_MOST)
+            } else {
+                MeasureSpec.makeMeasureSpec(minOf(size, maxHeightPx), mode)
+            }
+            super.onMeasure(widthMeasureSpec, newHeightSpec)
+        }
+
+        override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+            if (ev.action == MotionEvent.ACTION_DOWN) {
+                val note = noteEditText
+                if (note != null && note.hasFocus()) {
+                    val rect = Rect()
+                    note.getGlobalVisibleRect(rect)
+                    if (!rect.contains(ev.rawX.toInt(), ev.rawY.toInt())) {
+                        onReleaseFocus?.invoke()
+                    }
+                }
+            }
+            return super.dispatchTouchEvent(ev)
         }
     }
 

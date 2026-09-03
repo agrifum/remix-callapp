@@ -6,7 +6,7 @@
     android:padding="12dp"
     android:background="#FFFFFFFF">
 
-    <!-- Header: Title, phone number, close button -->
+    <!-- Header: Title, client badge, phone number, close button -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -19,14 +19,35 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/overlayTitle"
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Rozmowa"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="#FF000000" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/overlayTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Rozmowa"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="#FF000000" />
+
+                <TextView
+                    android:id="@+id/overlayClientBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="Klient ✓"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#FF2E7D32"
+                    android:background="#1F2E7D32"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="2dp"
+                    android:visibility="gone" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/overlayPhone"
@@ -46,165 +67,188 @@
             android:src="@android:drawable/ic_menu_close_clear_cancel" />
     </LinearLayout>
 
-    <!-- Past Note Section -->
-    <LinearLayout
-        android:id="@+id/pastNoteContainer"
+    <!-- Scrollable content area -->
+    <ScrollView
+        android:id="@+id/overlayScrollView"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="vertical"
-        android:visibility="gone">
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="6dp"
+        android:scrollbars="none"
+        android:fillViewport="false">
 
-        <TextView
-            android:id="@+id/pastNoteText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:textColor="#FF444444" />
-    </LinearLayout>
-
-    <!-- New Note Section -->
-    <EditText
-        android:id="@+id/overlayNote"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:minLines="3"
-        android:gravity="top|start"
-        android:inputType="textMultiLine|textCapSentences"
-        android:hint="Wpisz notatkę z rozmowy..."
-        android:textSize="14sp"
-        android:textColor="#FF000000"
-        android:textColorHint="#FF888888" />
-
-    <!-- Client Section -->
-    <LinearLayout
-        android:id="@+id/clientSection"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="vertical">
-
-        <CheckBox
-            android:id="@+id/clientCheckbox"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Oznacz jako Klient"
-            android:textSize="14sp" />
-    </LinearLayout>
-
-    <!-- Job Section -->
-    <LinearLayout
-        android:id="@+id/jobSection"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="vertical">
-
-        <CheckBox
-            android:id="@+id/jobCheckbox"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Utwórz zlecenie"
-            android:textSize="14sp" />
-
-        <!-- Job Details Container (Service + Day + Time) -->
         <LinearLayout
-            android:id="@+id/jobDetailsContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:orientation="vertical"
-            android:visibility="gone">
+            android:orientation="vertical">
 
-            <!-- 1. Usługa -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Usługa"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:textColor="#FF444444" />
-
-            <HorizontalScrollView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:scrollbars="none">
-
-                <LinearLayout
-                    android:id="@+id/serviceContainer"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal" />
-            </HorizontalScrollView>
-
-            <!-- 2. Wstępny dzień -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Wstępny dzień"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:textColor="#FF444444" />
-
-            <HorizontalScrollView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:scrollbars="none">
-
-                <LinearLayout
-                    android:id="@+id/dayContainer"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal" />
-            </HorizontalScrollView>
-
-            <!-- 3. Wstępna godzina -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Wstępna godzina"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:textColor="#FF444444" />
-
+            <!-- Past Note Section -->
             <LinearLayout
+                android:id="@+id/pastNoteContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:padding="6dp"
+                android:background="#FFF5F5F5"
+                android:orientation="vertical"
+                android:visibility="gone">
 
-                <Button
-                    android:id="@+id/timeButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="40dp"
-                    android:paddingHorizontal="12dp"
-                    android:text="Wybierz godzinę"
-                    android:textSize="12sp" />
-
-                <ImageButton
-                    android:id="@+id/timeClearButton"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_marginStart="8dp"
-                    android:background="?android:attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Wyczyść godzinę"
-                    android:src="@android:drawable/ic_menu_close_clear_cancel"
-                    android:visibility="gone" />
+                <TextView
+                    android:id="@+id/pastNoteText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    android:textColor="#FF444444" />
             </LinearLayout>
-        </LinearLayout>
-    </LinearLayout>
 
-    <!-- Action Buttons -->
+            <!-- New Note Section -->
+            <EditText
+                android:id="@+id/overlayNote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:minLines="3"
+                android:maxLines="6"
+                android:gravity="top|start"
+                android:inputType="textMultiLine|textCapSentences"
+                android:hint="Wpisz notatkę z rozmowy..."
+                android:textSize="14sp"
+                android:textColor="#FF000000"
+                android:textColorHint="#FF888888" />
+
+            <!-- Client Section (for numbers that are not yet clients) -->
+            <LinearLayout
+                android:id="@+id/clientSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="vertical">
+
+                <CheckBox
+                    android:id="@+id/clientCheckbox"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Klient"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <!-- Job Section -->
+            <LinearLayout
+                android:id="@+id/jobSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="vertical">
+
+                <CheckBox
+                    android:id="@+id/jobCheckbox"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Utwórz zlecenie"
+                    android:textSize="14sp" />
+
+                <!-- Job Details Container (Service + Day + Time) -->
+                <LinearLayout
+                    android:id="@+id/jobDetailsContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <!-- 1. Usługa -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Usługa"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#FF444444" />
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:scrollbars="none">
+
+                        <LinearLayout
+                            android:id="@+id/serviceContainer"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
+
+                    <!-- 2. Wstępny dzień -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Wstępny dzień"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#FF444444" />
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:scrollbars="none">
+
+                        <LinearLayout
+                            android:id="@+id/dayContainer"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
+
+                    <!-- 3. Wstępna godzina -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Wstępna godzina"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#FF444444" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <Button
+                            android:id="@+id/timeButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="40dp"
+                            android:paddingHorizontal="12dp"
+                            android:text="Wybierz godzinę"
+                            android:textSize="12sp" />
+
+                        <ImageButton
+                            android:id="@+id/timeClearButton"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
+                            android:layout_marginStart="8dp"
+                            android:background="?android:attr/selectableItemBackgroundBorderless"
+                            android:contentDescription="Wyczyść godzinę"
+                            android:src="@android:drawable/ic_menu_close_clear_cancel"
+                            android:visibility="gone" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Pinned Action Buttons at bottom -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="8dp"
         android:orientation="horizontal"
         android:gravity="end">
 
