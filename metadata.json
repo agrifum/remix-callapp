@@ -1,0 +1,8 @@
+{
+  "name": "Remix CallUpp",
+  "description": "Lokalna aplikacja do zarządzania zleceniami i notatkami z rozmów telefonicznych",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
