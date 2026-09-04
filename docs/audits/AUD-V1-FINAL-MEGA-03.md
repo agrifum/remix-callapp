@@ -1,7 +1,7 @@
 # Final V1 Comprehensive Release-Candidate Audit (SP-001 – SP-068) — FINAL MEGA RUN 03
 
-AUDIT BASE: 7434f24b7f78c5164db3e8d09237f77ca6a81fb8
-AUDIT TYPE: FINAL RELEASE-CANDIDATE AUDIT (STATIC COMPLETION)
+AUDIT BASE: 153a180746db9ffaafdeb0862e6c3ad6e7575224
+AUDIT TYPE: CORRECTED SEMANTIC REPAIR AUDIT
 SUPERSEDES: docs/audits/AUD-V1-POST-MEGA-RUN-02R.md
 CANONICAL MAPPING: docs/core/TRACEABILITY.md + docs/core/MASTER_SPEC.md (§1 – §68)
 REPOSITORY: agrifum/remix-callapp
@@ -14,9 +14,13 @@ DATE: 2026-09-04
 ## 1. Executive Summary & Provenance
 
 This authoritative audit concludes **FINAL MEGA RUN 03** (`IMP-FINAL-MEGA-V1-r1`).
-The target state of CallUpp V1 is **`STATIC_IMPLEMENTATION_COMPLETE_RUNTIME_PENDING`**.
-Every single statically verifiable requirement of the CallUpp V1 Specification (SP-001 through SP-068) has been fully implemented, verified, and characterized.
-The only remaining items are physical-device runtime verifications (SP-062 and SP-066) detailed in `docs/testing/PHYSICAL-ACCEPTANCE-V1.md`.
+The previous `STATIC_IMPLEMENTATION_COMPLETE_RUNTIME_PENDING` handoff is rejected.
+This corrected audit records the semantic repair state; it does not authorize
+physical acceptance or merge.
+
+Current state: **`SEMANTIC_REPAIR_IMPLEMENTED_LOCAL_VERIFIED`**.
+The 68-SP table below is retained as historical traceability, but stale PASS
+claims are superseded by the corrected findings in section 3A.
 
 ### Exact Commit Sequence (FINAL MEGA RUN 03)
 - **BASE:** `7434f24b7f78c5164db3e8d09237f77ca6a81fb8`
@@ -31,12 +35,12 @@ The only remaining items are physical-device runtime verifications (SP-062 and S
 
 ---
 
-## 2. Local Verification Evidence
+## 2. Previous Local Verification Evidence (superseded)
 
 The full repository verification suite (`powershell -ExecutionPolicy Bypass -File .\scripts\verify-local.ps1`) executed with exit code 0:
 1. **Compilation:** `:app:compileDebugKotlin` — PASS (0 errors)
 2. **Binary Packaging:** `:app:assembleDebug` — PASS (debug APK generated)
-3. **Automated Test Suite:** `:app:testDebugUnitTest --rerun` — PASS (**111/111 tests passed**, 0 failures, 0 errors, 0 skipped)
+3. **Automated Test Suite:** `:app:testDebugUnitTest --rerun` — PASS (**111/111 tests passed**, 0 failures, 0 errors, 0 skipped); the previously failing durable worker test now uses the deterministic test-only fake engine override while production remains Firebase-bound.
 4. **Static Analysis:** `:app:lintDebug` — PASS (0 errors)
 5. **Whitespace & Diff Gate:** `git diff --check HEAD^ HEAD` — PASS (clean formatting, single trailing newline at EOF)
 
@@ -120,8 +124,29 @@ Status vocabulary strictly adheres to:
 
 ---
 
-## 4. Final Verdict
+## 3A. Corrected findings
 
-- **Statically Verifiable Scope:** 66 / 66 Sections **PASS** (100%)
-- **Runtime Pending Scope:** 2 Sections (`SP-062`, `SP-066`) marked **RUNTIME_PENDING** (Awaiting physical hardware acceptance)
-- **Target State Achieved:** `STATIC_IMPLEMENTATION_COMPLETE_RUNTIME_PENDING`
+| SP | Corrected status | Finding |
+|---|---|---|
+| SP-002 | REPAIRED | Hilt wiring is now production-owned; `AppContainer` production references: 0. Navigation Compose 2.x removed. |
+| SP-030 | REPAIRED | Firebase binding receives exactly the eight permitted input fields and excludes unrelated context. |
+| SP-031 | REPAIRED | Firebase AI Logic uses a real `responseSchema`, exact output names, strict confidence/qualifier/jobId validation, and fail-closed parsing. |
+| SP-053 | REPAIRED | Role and special-access state is re-read after resume. |
+| SP-054 | REPAIRED | Onboarding sequence is ROLE_CALL_SCREENING, READ_PHONE_STATE, overlay, POST_NOTIFICATIONS, READ_CALL_LOG, READ_CONTACTS; no SMS request. |
+| SP-064 | REPAIRED | Production binding is `FirebaseSmsExtractionEngine`; `FakeSmsExtractionEngine` is test-only wiring. Model: `gemini-3.5-flash-lite`. |
+| SP-065 | INCOMPLETE | Literal §65 matrix has 57 rows: 33 automated PASS, 23 deterministic GAP, 1 PHYSICAL. |
+| SP-066 | RUNTIME_PENDING | Physical acceptance remains out of scope by instruction. |
+| SP-068 | REPAIRED | `AppContainer` was deleted; production references count is zero. |
+
+Firebase external configuration remains **EXTERNAL_CONFIGURATION_PENDING**:
+no `google-services.json` was invented. The Google Services plugin is applied
+only when that external file exists; Play Integrity App Check is release
+implementation and debug App Check is debug-only.
+
+## 4. Corrected Verdict
+
+- **68-SP status:** corrected reassessment recorded above; not 66/66 PASS.
+- **§65 status:** 33/57 automated PASS, 23 deterministic GAP, 1 PHYSICAL.
+- **External configuration:** `EXTERNAL_CONFIGURATION_PENDING`.
+- **Physical acceptance:** explicitly not started.
+- **Target State:** `SEMANTIC_REPAIR_IMPLEMENTED_LOCAL_VERIFIED`.

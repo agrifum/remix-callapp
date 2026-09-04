@@ -1,9 +1,10 @@
 package com.example.core.di
 
 import android.content.Context
-import com.example.ai.FakeSmsExtractionEngine
+import com.example.ai.FirebaseSmsExtractionEngine
 import com.example.ai.SmsAnalysisCoordinator
 import com.example.ai.SmsExtractionEngine
+import com.example.ai.SmsExtractionEngineProvider
 import com.example.data.database.CallUppDatabase
 import com.example.data.preferences.AppPreferences
 import com.example.data.repository.AiSuggestionRepository
@@ -21,6 +22,7 @@ import com.example.system.calls.CallLogRepository
 import com.example.system.contacts.ContactLookupRepository
 import com.example.system.sms.DefaultSystemSmsReader
 import com.example.system.sms.SystemSmsReader
+import com.example.system.sms.SystemSmsReaderProvider
 import com.example.system.work.JobCompletionScheduler
 import com.example.system.work.WorkManagerJobCompletionScheduler
 import dagger.Module
@@ -215,13 +217,13 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSystemSmsReader(@ApplicationContext context: Context): SystemSmsReader {
-        return DefaultSystemSmsReader(context)
+        return SystemSmsReaderProvider.override ?: DefaultSystemSmsReader(context)
     }
 
     @Provides
     @Singleton
-    fun provideSmsExtractionEngine(): SmsExtractionEngine {
-        return FakeSmsExtractionEngine()
+    fun provideSmsExtractionEngine(@ApplicationContext context: Context): SmsExtractionEngine {
+        return SmsExtractionEngineProvider.override ?: FirebaseSmsExtractionEngine(context)
     }
 
     @Provides
@@ -245,6 +247,35 @@ object AppModule {
             triggerDao = smsTriggerDao,
             appPreferences = preferences,
             extractionEngine = smsExtractionEngine
+        )
+    }
+
+    @Provides
+    @Singleton
+    fun provideSmsTriggerRecovery(
+        @ApplicationContext context: Context,
+        preferences: AppPreferences,
+        clientDao: com.example.data.dao.ClientDao,
+        jobDao: com.example.data.dao.JobDao,
+        windowDao: com.example.data.dao.JobAnalysisWindowDao,
+        smsTriggerDao: com.example.data.dao.SmsTriggerDao
+    ): com.example.system.work.SmsTriggerRecovery {
+        return com.example.system.work.SmsTriggerRecovery(
+            context, preferences, clientDao, jobDao, windowDao, smsTriggerDao
+        )
+    }
+
+    @Provides
+    @Singleton
+    fun provideCallStateMonitor(
+        @ApplicationContext context: Context,
+        appScope: CoroutineScope,
+        callDraftRepository: CallDraftRepository,
+        clientRepository: ClientRepository,
+        reengagementRepository: ReengagementRepository
+    ): com.example.system.calls.CallStateMonitor {
+        return com.example.system.calls.CallStateMonitor(
+            context, appScope, callDraftRepository, clientRepository, reengagementRepository
         )
     }
 }

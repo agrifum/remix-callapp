@@ -20,7 +20,17 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
-import com.example.core.di.AppContainer
+import com.example.data.preferences.AppPreferences
+import com.example.data.repository.CallDraftRepository
+import com.example.data.repository.ClientRepository
+import com.example.data.repository.JobRepository
+import com.example.data.repository.NoteRepository
+import com.example.data.repository.ReengagementRepository
+import com.example.data.repository.ServiceRepository
+import com.example.data.repository.SmsTemplateRepository
+import com.example.data.repository.TaskRepository
+import com.example.system.calendar.CalendarManager
+import com.example.system.calls.CallLogRepository
 import com.example.ui.screens.CallsScreen
 import com.example.ui.screens.ClientDetailScreen
 import com.example.ui.screens.JobDetailScreen
@@ -43,9 +53,19 @@ sealed class BottomNavItem(val screen: Screen, val title: String, val icon: andr
 
 @Composable
 fun AppNavHost(
-    container: AppContainer
+    callLogRepository: CallLogRepository,
+    clientRepository: ClientRepository,
+    reengagementRepository: ReengagementRepository,
+    jobRepository: JobRepository,
+    taskRepository: TaskRepository,
+    noteRepository: NoteRepository,
+    serviceRepository: ServiceRepository,
+    callDraftRepository: CallDraftRepository,
+    appPreferences: AppPreferences,
+    smsTemplateRepository: SmsTemplateRepository,
+    calendarManager: CalendarManager
 ) {
-    val onboardingCompleted by container.appPreferences.onboardingCompleted.collectAsState(initial = null)
+    val onboardingCompleted by appPreferences.onboardingCompleted.collectAsState(initial = null)
     val backStack = rememberNavBackStack(Screen.Calls)
     val currentScreen = backStack.lastOrNull() as? Screen ?: Screen.Calls
 
@@ -108,9 +128,9 @@ fun AppNavHost(
             entryProvider = entryProvider {
                 entry<Screen.Calls> {
                     CallsScreen(
-                        callLogRepository = container.callLogRepository,
-                        clientRepository = container.clientRepository,
-                        reengagementRepository = container.reengagementRepository,
+                        callLogRepository = callLogRepository,
+                        clientRepository = clientRepository,
+                        reengagementRepository = reengagementRepository,
                         onClientClick = { clientId ->
                             navigateTo(Screen.ClientDetail(clientId))
                         },
@@ -125,8 +145,8 @@ fun AppNavHost(
 
                 entry<Screen.Jobs> {
                     JobsScreen(
-                        jobRepository = container.jobRepository,
-                        clientRepository = container.clientRepository,
+                        jobRepository = jobRepository,
+                        clientRepository = clientRepository,
                         onJobClick = { jobId ->
                             navigateTo(Screen.JobDetail(jobId))
                         },
@@ -138,16 +158,16 @@ fun AppNavHost(
 
                 entry<Screen.Tasks> {
                     TasksScreen(
-                        taskRepository = container.taskRepository,
-                        noteRepository = container.noteRepository
+                        taskRepository = taskRepository,
+                        noteRepository = noteRepository
                     )
                 }
 
                 entry<Screen.Simulator> {
                     SimulatorScreen(
-                        clientRepository = container.clientRepository,
-                        serviceRepository = container.serviceRepository,
-                        callDraftRepository = container.callDraftRepository,
+                        clientRepository = clientRepository,
+                        serviceRepository = serviceRepository,
+                        callDraftRepository = callDraftRepository,
                         onNavigateToJobs = {
                             navigateBottomTab(Screen.Jobs)
                         }
@@ -156,9 +176,9 @@ fun AppNavHost(
 
                 entry<Screen.NewJob> {
                     NewJobScreen(
-                        jobRepository = container.jobRepository,
-                        clientRepository = container.clientRepository,
-                        serviceRepository = container.serviceRepository,
+                        jobRepository = jobRepository,
+                        clientRepository = clientRepository,
+                        serviceRepository = serviceRepository,
                         onNavigateBack = { popBackStack() }
                     )
                 }
@@ -166,9 +186,9 @@ fun AppNavHost(
                 entry<Screen.ClientDetail> { clientDetail ->
                     ClientDetailScreen(
                         clientId = clientDetail.clientId,
-                        clientRepository = container.clientRepository,
-                        jobRepository = container.jobRepository,
-                        noteRepository = container.noteRepository,
+                        clientRepository = clientRepository,
+                        jobRepository = jobRepository,
+                        noteRepository = noteRepository,
                         onNavigateBack = { popBackStack() },
                         onNavigateToJob = { jobId ->
                             navigateTo(Screen.JobDetail(jobId))
@@ -179,8 +199,8 @@ fun AppNavHost(
                 entry<Screen.NumberDetail> { numberDetail ->
                     NumberDetailScreen(
                         phoneKey = numberDetail.phoneKey,
-                        clientRepository = container.clientRepository,
-                        noteRepository = container.noteRepository,
+                        clientRepository = clientRepository,
+                        noteRepository = noteRepository,
                         onNavigateBack = { popBackStack() },
                         onNavigateToClient = { clientId ->
                             navigateTo(Screen.ClientDetail(clientId))
@@ -191,19 +211,19 @@ fun AppNavHost(
                 entry<Screen.JobDetail> { jobDetail ->
                     JobDetailScreen(
                         jobId = jobDetail.jobId,
-                        jobRepository = container.jobRepository,
-                        clientRepository = container.clientRepository,
+                        jobRepository = jobRepository,
+                        clientRepository = clientRepository,
                         onNavigateBack = { popBackStack() },
                         onNavigateToClient = { clientId ->
                             navigateTo(Screen.ClientDetail(clientId))
                         },
-                        calendarManager = container.calendarManager
+                        calendarManager = calendarManager
                     )
                 }
 
                 entry<Screen.Settings> {
                     SettingsScreen(
-                        appPreferences = container.appPreferences,
+                        appPreferences = appPreferences,
                         onNavigateBack = { popBackStack() },
                         onNavigateToServices = {
                             navigateTo(Screen.ServicesSettings)
@@ -219,30 +239,30 @@ fun AppNavHost(
 
                 entry<Screen.ServicesSettings> {
                     ServicesSettingsScreen(
-                        serviceRepository = container.serviceRepository,
+                        serviceRepository = serviceRepository,
                         onNavigateBack = { popBackStack() }
                     )
                 }
 
                 entry<Screen.SmsTemplates> {
                     SmsTemplatesScreen(
-                        smsTemplateRepository = container.smsTemplateRepository,
+                        smsTemplateRepository = smsTemplateRepository,
                         onNavigateBack = { popBackStack() }
                     )
                 }
 
                 entry<Screen.Trash> {
                     TrashScreen(
-                        jobRepository = container.jobRepository,
-                        noteRepository = container.noteRepository,
-                        taskRepository = container.taskRepository,
+                        jobRepository = jobRepository,
+                        noteRepository = noteRepository,
+                        taskRepository = taskRepository,
                         onNavigateBack = { popBackStack() }
                     )
                 }
 
                 entry<Screen.Onboarding> {
                     OnboardingScreen(
-                        appPreferences = container.appPreferences,
+                        appPreferences = appPreferences,
                         onComplete = {
                             navigateBottomTab(Screen.Calls)
                         }

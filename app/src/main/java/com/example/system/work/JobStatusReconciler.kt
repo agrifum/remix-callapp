@@ -3,7 +3,7 @@ package com.example.system.work
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.example.CallUppApplication
+import com.example.core.di.runtimeDependencies
 import com.example.core.model.JobStatus
 
 /**
@@ -22,23 +22,23 @@ class JobStatusReconciler(
     }
 
     override suspend fun doWork(): Result {
-        val app = applicationContext as? CallUppApplication ?: return Result.failure()
+        val deps = applicationContext.runtimeDependencies()
         val now = System.currentTimeMillis()
         val dayInMillis = 24L * 60 * 60 * 1000
 
         return try {
-            val activeJobs = app.container.jobRepository.getActiveJobsSync()
+            val activeJobs = deps.jobRepository().getActiveJobsSync()
             for (job in activeJobs) {
-                val anchor = app.container.jobRepository.calculateCompletionAnchor(job) ?: continue
+                val anchor = deps.jobRepository().calculateCompletionAnchor(job) ?: continue
                 // Section 19: Stale past term on reopened job must NOT trigger auto-completion
                 if (job.reopenedAt != null && anchor <= job.reopenedAt) {
                     continue
                 }
                 if (now >= anchor + dayInMillis) {
-                    app.container.jobRepository.completeJob(job.id)
+                    deps.jobRepository().completeJob(job.id)
                 } else {
                     // Reconciliation repair: ensure per-job WorkManager worker is enqueued
-                    app.container.jobCompletionScheduler.scheduleCompletion(job)
+                    deps.jobCompletionScheduler().scheduleCompletion(job)
                 }
             }
             Result.success()

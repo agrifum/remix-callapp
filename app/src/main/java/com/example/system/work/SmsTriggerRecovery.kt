@@ -5,7 +5,6 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
-import com.example.core.di.AppContainer
 import com.example.core.model.SmsAnalysisMode
 import com.example.core.model.TriggerState
 import com.example.data.entity.SmsTriggerEntity
@@ -23,7 +22,11 @@ import kotlinx.coroutines.flow.first
  */
 class SmsTriggerRecovery(
     private val context: Context,
-    private val container: AppContainer
+    private val appPreferences: com.example.data.preferences.AppPreferences,
+    private val clientDao: com.example.data.dao.ClientDao,
+    private val jobDao: com.example.data.dao.JobDao,
+    private val windowDao: com.example.data.dao.JobAnalysisWindowDao,
+    private val smsTriggerDao: com.example.data.dao.SmsTriggerDao
 ) {
 
     /**
@@ -40,32 +43,32 @@ class SmsTriggerRecovery(
 
         // If trigger reached or exceeded retry limit, discard deterministically
         if (trigger.attemptCount >= SmsAnalysisWorker.MAX_RETRIES) {
-            container.smsTriggerDao.updateState(trigger.id, TriggerState.DISCARDED)
+            smsTriggerDao.updateState(trigger.id, TriggerState.DISCARDED)
             return false
         }
 
         // 1. Check global preference
-        val globalEnabled = container.appPreferences.smsAnalysisGlobalEnabled.first()
+        val globalEnabled = appPreferences.smsAnalysisGlobalEnabled.first()
         if (!globalEnabled) {
-            container.smsTriggerDao.updateState(trigger.id, TriggerState.DISCARDED)
+            smsTriggerDao.updateState(trigger.id, TriggerState.DISCARDED)
             return false
         }
 
         // 2. Check client and effective mode
-        val client = container.clientDao.getClientByIdSync(trigger.clientId)
+        val client = clientDao.getClientByIdSync(trigger.clientId)
         if (client == null || client.smsAnalysisMode == SmsAnalysisMode.DISABLED) {
-            container.smsTriggerDao.updateState(trigger.id, TriggerState.DISCARDED)
+            smsTriggerDao.updateState(trigger.id, TriggerState.DISCARDED)
             return false
         }
 
         // 3. Check active jobs and open window
-        val activeJobs = container.jobDao.getActiveJobsForClientSync(client.id)
+        val activeJobs = jobDao.getActiveJobsForClientSync(client.id)
         val hasEligibleWindow = activeJobs.any { job ->
-            val window = container.windowDao.getOpenWindowForJob(job.id)
+            val window = windowDao.getOpenWindowForJob(job.id)
             window != null && window.endedAt == null && trigger.receivedAt >= window.startedAt
         }
         if (!hasEligibleWindow) {
-            container.smsTriggerDao.updateState(trigger.id, TriggerState.DISCARDED)
+            smsTriggerDao.updateState(trigger.id, TriggerState.DISCARDED)
             return false
         }
 
@@ -87,7 +90,7 @@ class SmsTriggerRecovery(
      * Re-evaluates eligibility and enqueues work idempotently.
      */
     suspend fun recoverOutstandingTriggers(): Int {
-        val recoverableTriggers = container.smsTriggerDao.getRecoverableTriggers()
+        val recoverableTriggers = smsTriggerDao.getRecoverableTriggers()
         var recoveredCount = 0
         for (trigger in recoverableTriggers) {
             if (enqueueOrDiscard(trigger)) {

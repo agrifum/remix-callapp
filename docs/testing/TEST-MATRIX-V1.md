@@ -1,66 +1,69 @@
 # TEST-MATRIX-V1
 
-Canonical Automated Test Matrix for CallUpp V1 (Prompt ID: `IMP-FINAL-MEGA-V1-r1`, Phase: `FINAL-MEGA-V1`).
-Locked on 2026-09-04 against MASTER_SPEC §65 (Testy obowiązkowe).
+Canonical one-row-per-bullet matrix for MASTER_SPEC §65. The specification contains
+**57 literal items**. `PASS` means an automated test exercises production logic;
+`PHYSICAL` is reserved for carrier/OEM/device behavior and is not claimed here.
 
----
+| # | §65 item | Evidence | Status |
+|---:|---|---|---|
+| 1 | incoming answered | CallHandlingAndOverlayCharacterizationTest | PASS |
+| 2 | incoming rejected | CallHandlingAndOverlayCharacterizationTest | PASS |
+| 3 | outgoing answered | CallHandlingAndOverlayCharacterizationTest | PASS |
+| 4 | outgoing unanswered | CallHandlingAndOverlayCharacterizationTest | PASS |
+| 5 | rapid call end | CallHandlingAndOverlayCharacterizationTest | PASS |
+| 6 | unknown number | CallDraftPersistenceCharacterizationTest | PASS |
+| 7 | contact number | CallDraftPersistenceCharacterizationTest | PASS |
+| 8 | autosave | CallHandlingAndOverlayCharacterizationTest | PASS |
+| 9 | process killed | CallDraftCommitIdempotencyTest | PASS |
+| 10 | IME | required deterministic test not present | GAP |
+| 11 | rotation/window change | required deterministic test not present | GAP |
+| 12 | screen lock/unlock | physical lifecycle verification | PHYSICAL |
+| 13 | multiple active notes | required deterministic test not present | GAP |
+| 14 | create from number | CallDraftPersistenceCharacterizationTest | PASS |
+| 15 | Contacts name | ClientDetailAndTagsCharacterizationTest | PASS |
+| 16 | manual edit | PhoneNumberNormalizerCharacterizationTest | PASS |
+| 17 | one number only | required deterministic test not present | GAP |
+| 18 | address update | JobLifecycleCharacterizationTest | PASS |
+| 19 | first job | JobLifecycleCharacterizationTest | PASS |
+| 20 | multiple jobs | JobMultiSelectionActionCharacterizationTest | PASS |
+| 21 | blank preliminary term | JobLifecycleCharacterizationTest | PASS |
+| 22 | duplicate term warning | JobLifecycleCharacterizationTest | PASS |
+| 23 | active -> completed | JobLifecycleCharacterizationTest | PASS |
+| 24 | active -> closed | JobLifecycleCharacterizationTest | PASS |
+| 25 | reopen | ReengagementAtomicityCharacterizationTest | PASS |
+| 26 | new based on previous | required deterministic test not present | GAP |
+| 27 | global OFF | SmsAiGatingCharacterizationTest | PASS |
+| 28 | client OFF | SmsAiGatingCharacterizationTest | PASS |
+| 29 | no ACTIVE jobs | SmsAiGatingCharacterizationTest | PASS |
+| 30 | one ACTIVE | required deterministic test not present | GAP |
+| 31 | multiple ACTIVE | required deterministic test not present | GAP |
+| 32 | SMS before job | required deterministic test not present | GAP |
+| 33 | SMS between jobs | required deterministic test not present | GAP |
+| 34 | SMS after completion | required deterministic test not present | GAP |
+| 35 | resume with new analysis window | required deterministic test not present | GAP |
+| 36 | invalid JSON | SmsAiGatingCharacterizationTest | PASS |
+| 37 | no network | FirebaseSmsExtractionEngineTest | PASS |
+| 38 | empty address | required deterministic test not present | GAP |
+| 39 | filled address | required deterministic test not present | GAP |
+| 40 | same address | required deterministic test not present | GAP |
+| 41 | new address | required deterministic test not present | GAP |
+| 42 | empty term | required deterministic test not present | GAP |
+| 43 | same term | required deterministic test not present | GAP |
+| 44 | changed term | required deterministic test not present | GAP |
+| 45 | calendar create | CalendarIntegrationCharacterizationTest | PASS |
+| 46 | calendar update | required deterministic test not present | GAP |
+| 47 | calendar delete | CalendarIntegrationCharacterizationTest | PASS |
+| 48 | calendar permission denied | required deterministic test not present | GAP |
+| 49 | Maps installed | ManualEtaCharacterizationTest | PASS |
+| 50 | ETA parsed | required deterministic test not present | GAP |
+| 51 | parser fails | required deterministic test not present | GAP |
+| 52 | notification access denied | required deterministic test not present | GAP |
+| 53 | manual arrival HH:MM | ManualEtaCharacterizationTest | PASS |
+| 54 | complete multiple | JobMultiSelectionActionCharacterizationTest | PASS |
+| 55 | archive multiple | JobMultiSelectionActionCharacterizationTest | PASS |
+| 56 | delete multiple | JobMultiSelectionActionCharacterizationTest | PASS |
+| 57 | restore from trash | JobMultiSelectionActionCharacterizationTest | PASS |
 
-## 1. Executive Summary
-
-This document establishes the 1:1 traceability between the mandatory test categories specified in MASTER_SPEC §65 and the automated test suite in `app/src/test/java/com/example/characterization/`.
-Every required static and unit verification scenario is backed by automated Robolectric unit tests running on JVM 17 against Android API 36 (`@Config(sdk = [36])`).
-
----
-
-## 2. Comprehensive 9-Category Test Matrix (MASTER_SPEC §65)
-
-| §65 Category | Scenario / Requirement | Implementing Test Class & Method | Coverage Status | Verification Type |
-|---|---|---|---|---|
-| **1. Call handling** | Incoming answered | `CallHandlingAndOverlayCharacterizationTest.testIncomingAnsweredWithNoteAutosaveAndEndCommit` | PASS | Automated Robolectric |
-| | Incoming rejected | `CallHandlingAndOverlayCharacterizationTest.testIncomingRejectedNeverCreatesGhostRecords` | PASS | Automated Robolectric |
-| | Outgoing answered | `CallHandlingAndOverlayCharacterizationTest.testOutgoingAnsweredWithManualCommitDoZadan` | PASS | Automated Robolectric |
-| | Outgoing unanswered | `CallHandlingAndOverlayCharacterizationTest.testOutgoingUnansweredWithEmptyDraftDiscardsCleanly` | PASS | Automated Robolectric |
-| | Rapid call end | `CallHandlingAndOverlayCharacterizationTest.testRapidCallEndHandledGracefully` | PASS | Automated Robolectric |
-| | Unknown number | `CallDraftPersistenceCharacterizationTest.testAutoNameFormattingForNewClient` | PASS | Automated Robolectric |
-| | Contact number | `CallDraftPersistenceCharacterizationTest.testManualClientNamingOverridesAutoFormatting` | PASS | Automated Robolectric |
-| **2. Overlay** | Autosave | `CallHandlingAndOverlayCharacterizationTest.testIncomingAnsweredWithNoteAutosaveAndEndCommit` | PASS | Automated Robolectric |
-| | Process killed / recovery | `CallDraftCommitIdempotencyTest.testConcurrentManualAndAutoCommitResolvesIdempotently` | PASS | Automated Robolectric |
-| | Direction preservation | `CallDraftPersistenceCharacterizationTest.testNotePreservesSourceCallDirectionAndTimestamp` | PASS | Automated Robolectric |
-| | Multiple notes / drafts | `CallDraftPersistenceCharacterizationTest.testNoteOnlyCommitSavesPersistentNote` | PASS | Automated Robolectric |
-| **3. Client** | Create from number | `CallDraftPersistenceCharacterizationTest.testAutoNameFormattingForNewClient` | PASS | Automated Robolectric |
-| | Contacts name | `ClientDetailAndTagsCharacterizationTest.testClientTagsCityDistrictAndRelationStatus` | PASS | Automated Robolectric |
-| | Manual edit & PhoneKey | `PhoneNumberNormalizerCharacterizationTest.testPolishMobileCanonicalNormalization` | PASS | Automated Unit Test |
-| | Address update | `JobLifecycleCharacterizationTest.testJobCreationCapturesClientAddressSnapshot` | PASS | Automated Robolectric |
-| **4. Jobs** | First job & +24h scheduling | `JobLifecycleCharacterizationTest.testJobLifecycleWithAutoCompletePlus24h` | PASS | Automated Robolectric |
-| | Multiple jobs | `JobMultiSelectionActionCharacterizationTest.testMultiSelectionCompleteJobs` | PASS | Automated Robolectric |
-| | Blank preliminary term | `JobLifecycleCharacterizationTest.testJobCreationWithoutPreliminaryTerm` | PASS | Automated Robolectric |
-| | Duplicate term warning | `JobLifecycleCharacterizationTest.testDuplicateTermConflictDetection` | PASS | Automated Robolectric |
-| | Active → Completed | `JobLifecycleCharacterizationTest.testTransitionActiveToCompleted` | PASS | Automated Robolectric |
-| | Active → Closed | `JobLifecycleCharacterizationTest.testTransitionActiveToClosed` | PASS | Automated Robolectric |
-| | Reopen / Re-engagement | `ReengagementAtomicityCharacterizationTest.testAtomicReengagementOnClientContact` | PASS | Automated Robolectric |
-| **5. SMS AI** | Global OFF | `SmsAiGatingCharacterizationTest.testGlobalSmsAnalysisDisabledSkipsExtraction` | PASS | Automated Robolectric |
-| | Client OFF | `SmsAiGatingCharacterizationTest.testClientSmsAnalysisDisabledSkipsExtraction` | PASS | Automated Robolectric |
-| | No active jobs | `SmsAiGatingCharacterizationTest.testNoActiveJobWindowSkipsExtraction` | PASS | Automated Robolectric |
-| | Invalid JSON / fail-closed | `SmsAiGatingCharacterizationTest.testInvalidJsonSchemaFailsClosedWithoutDataMutation` | PASS | Automated Robolectric |
-| | No network fail-closed | `FirebaseSmsExtractionEngineTest.testFailClosedWhenUnconfigured` | PASS | Automated Robolectric |
-| **6. AI field protection** | Protected existing data | `SmsTriggerPrivacyAndWorkerTest.testAiNeverOverwritesApprovedClientAddress` | PASS | Automated Robolectric |
-| | New suggestion gating | `SmsAiGatingCharacterizationTest.testAiSuggestionRequiresExplicitUserAcceptance` | PASS | Automated Robolectric |
-| **7. Calendar** | Create & sync event | `CalendarIntegrationCharacterizationTest.testCreateCalendarEventWithExactTerm` | PASS | Automated Robolectric |
-| | Delete event on job deletion | `CalendarIntegrationCharacterizationTest.testDeleteCalendarEvent` | PASS | Automated Robolectric |
-| | User confirmation gate | `CalendarIntegrationCharacterizationTest.testCalendarRequiresExplicitUserConfirmation` | PASS | Automated Robolectric |
-| **8. Navigation & ETA** | Maps intent geo URI | `ManualEtaCharacterizationTest.testGoogleMapsIntentGeoUriFormatting` | PASS | Automated Robolectric |
-| | Manual arrival fallback | `ManualEtaCharacterizationTest.testManualEtaPickerCalculatesTargetTimestamp` | PASS | Automated Robolectric |
-| | Relative buttons (+15, +30, +45, +60) | `ManualEtaCharacterizationTest.testRelativeMinutesButtons` | PASS | Automated Robolectric |
-| **9. Bulk operations** | Complete multiple | `JobMultiSelectionActionCharacterizationTest.testMultiSelectionCompleteJobs` | PASS | Automated Robolectric |
-| | Archive multiple | `JobMultiSelectionActionCharacterizationTest.testMultiSelectionArchiveJobs` | PASS | Automated Robolectric |
-| | Delete & restore | `JobMultiSelectionActionCharacterizationTest.testMultiSelectionDeleteAndTrashRestore` | PASS | Automated Robolectric |
-
----
-
-## 3. Automated Execution Verification
-
-Execution Command:
-```bash
-./gradlew :app:testDebugUnitTest --rerun
-```
-Requirement: 100% PASS, 0 failures, 0 errors. Timezone-invariant execution across all locales and build environments.
+**Automated PASS:** 33/57. **Deterministic gaps:** 23. **Physical split:** 1
+(screen lock/unlock), with real carrier/OEM behavior explicitly not simulated.
+This matrix is not a release gate until every GAP is covered.

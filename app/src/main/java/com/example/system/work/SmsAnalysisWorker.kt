@@ -3,7 +3,7 @@ package com.example.system.work
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.example.CallUppApplication
+import com.example.core.di.runtimeDependencies
 import com.example.core.model.SmsAnalysisMode
 import com.example.core.model.TriggerState
 import kotlinx.coroutines.flow.first
@@ -30,10 +30,10 @@ class SmsAnalysisWorker(
     }
 
     override suspend fun doWork(): Result {
-        val app = applicationContext as? CallUppApplication ?: return Result.failure()
+        val deps = applicationContext.runtimeDependencies()
         val triggerId = inputData.getString(KEY_TRIGGER_ID) ?: return Result.failure()
 
-        val triggerDao = app.container.smsTriggerDao
+        val triggerDao = deps.smsTriggerDao()
         val trigger = triggerDao.getTriggerById(triggerId) ?: return Result.failure()
 
         // 0. Idempotent check: if trigger is already completed or discarded, succeed immediately
@@ -42,23 +42,23 @@ class SmsAnalysisWorker(
         }
 
         // 1. Re-check global preference without accessing SMS body
-        val globalEnabled = app.container.appPreferences.smsAnalysisGlobalEnabled.first()
+        val globalEnabled = deps.appPreferences().smsAnalysisGlobalEnabled.first()
         if (!globalEnabled) {
             triggerDao.updateState(triggerId, TriggerState.DISCARDED)
             return Result.success()
         }
 
         // 2. Re-check client and effective SMS analysis setting
-        val client = app.container.clientDao.getClientByIdSync(trigger.clientId)
+        val client = deps.clientDao().getClientByIdSync(trigger.clientId)
         if (client == null || client.smsAnalysisMode == SmsAnalysisMode.DISABLED) {
             triggerDao.updateState(triggerId, TriggerState.DISCARDED)
             return Result.success()
         }
 
         // 3. Re-check ACTIVE jobs and JobAnalysisWindow eligibility
-        val activeJobs = app.container.jobDao.getActiveJobsForClientSync(client.id)
+        val activeJobs = deps.jobDao().getActiveJobsForClientSync(client.id)
         val hasEligibleWindow = activeJobs.any { job ->
-            val window = app.container.windowDao.getOpenWindowForJob(job.id)
+            val window = deps.jobAnalysisWindowDao().getOpenWindowForJob(job.id)
             window != null && window.endedAt == null && trigger.receivedAt >= window.startedAt
         }
         if (!hasEligibleWindow) {
@@ -71,7 +71,7 @@ class SmsAnalysisWorker(
         val currentAttempt = trigger.attemptCount + 1
 
         // 5. Re-read exactly one intended SMS from system provider (two-phase resolution)
-        val smsBody = app.container.systemSmsReader.readSms(trigger.senderPhoneKey, trigger.receivedAt)
+        val smsBody = deps.systemSmsReader().readSms(trigger.senderPhoneKey, trigger.receivedAt)
         if (smsBody == null) {
             // Target message not found or ambiguous
             return if (currentAttempt < MAX_RETRIES) {
@@ -84,7 +84,7 @@ class SmsAnalysisWorker(
         }
 
         // 6. Delegate to SmsAnalysisCoordinator for extraction and safe transactional writes
-        val success = app.container.smsAnalysisCoordinator.processSmsTrigger(triggerId, smsBody)
+        val success = deps.smsAnalysisCoordinator().processSmsTrigger(triggerId, smsBody)
         return if (success) {
             Result.success()
         } else {

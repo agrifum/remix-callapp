@@ -3,13 +3,17 @@ package com.example.system.calls
 import android.telecom.Call
 import android.telecom.CallScreeningService
 import com.example.core.model.CallDirection
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 /**
  * CallScreeningServiceImpl: early incoming call identification.
  * Captures incoming phone number into ActiveCallSession and immediately responds to allow the call.
  * Performs no Room queries, AI, network calls, or blocking operations.
  */
+@AndroidEntryPoint
 class CallScreeningServiceImpl : CallScreeningService() {
+    @Inject lateinit var callStateMonitor: CallStateMonitor
 
     override fun onScreenCall(callDetails: Call.Details) {
         val handle = callDetails.handle
@@ -36,6 +40,6 @@ class CallScreeningServiceImpl : CallScreeningService() {
         }
 
         // Outside critical path of responding to call, ensure monitoring is registered
-        (applicationContext as? com.example.CallUppApplication)?.ensureCallStateMonitoring()
+        callStateMonitor.start()
     }
 }

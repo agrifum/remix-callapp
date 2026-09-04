@@ -7,6 +7,10 @@ plugins {
   alias(libs.plugins.hilt)
 }
 
+if (file("google-services.json").exists()) {
+  apply(plugin = "com.google.gms.google-services")
+}
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -81,7 +85,6 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
-  implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.navigation3.ui)
   implementation(libs.androidx.room.runtime)
@@ -94,7 +97,7 @@ dependencies {
   implementation(libs.okhttp)
   implementation(platform(libs.firebase.bom))
   implementation(libs.firebase.ai)
-  implementation(libs.firebase.appcheck.debug)
+  implementation(libs.firebase.appcheck.playintegrity)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
@@ -112,6 +115,7 @@ dependencies {
   androidTestImplementation(libs.androidx.runner)
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   debugImplementation(libs.androidx.compose.ui.tooling)
+  debugImplementation(libs.firebase.appcheck.debug)
   implementation(libs.hilt.android)
   implementation(libs.androidx.hilt.navigation.compose)
   "ksp"(libs.hilt.compiler)

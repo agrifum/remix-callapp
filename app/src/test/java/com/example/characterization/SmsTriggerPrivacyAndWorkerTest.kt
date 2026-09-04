@@ -19,9 +19,11 @@ import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
 import com.example.CallUppApplication
+import com.example.container
 import com.example.ai.FakeSmsExtractionEngine
 import com.example.ai.SmsAnalysisCoordinator
 import com.example.ai.SmsExtractionEngine
+import com.example.ai.SmsExtractionEngineProvider
 import com.example.ai.model.AddressCandidate
 import com.example.ai.model.JobSummaryUpdate
 import com.example.ai.model.SmsExtractionInput
@@ -112,6 +114,7 @@ class SmsTriggerPrivacyAndWorkerTest {
         appPreferences.setSmsAnalysisGlobalEnabled(true)
 
         app.container.systemSmsReader = DefaultSystemSmsReader(app)
+        SmsExtractionEngineProvider.override = app.container.smsExtractionEngine
         coordinator = app.container.smsAnalysisCoordinator
     }
 
@@ -123,6 +126,7 @@ class SmsTriggerPrivacyAndWorkerTest {
         }
         appPreferences.setSmsAnalysisGlobalEnabled(true)
         app.container.systemSmsReader = DefaultSystemSmsReader(app)
+        SmsExtractionEngineProvider.override = null
     }
 
     private fun createSmsIntent(

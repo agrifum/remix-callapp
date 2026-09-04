@@ -3,7 +3,7 @@ package com.example.system.work
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.example.CallUppApplication
+import com.example.core.di.runtimeDependencies
 import com.example.core.model.JobStatus
 import com.example.data.repository.JobRepository
 
@@ -27,8 +27,8 @@ class JobAutoCompleteWorker(
 
     override suspend fun doWork(): Result {
         val jobId = inputData.getString(KEY_JOB_ID) ?: return Result.failure()
-        val app = applicationContext as? CallUppApplication ?: return Result.failure()
-        val jobRepository = app.container.jobRepository
+        val deps = applicationContext.runtimeDependencies()
+        val jobRepository = deps.jobRepository()
 
         val job = jobRepository.getJobByIdSync(jobId) ?: return Result.success()
 
@@ -51,7 +51,7 @@ class JobAutoCompleteWorker(
             jobRepository.completeJob(job.id)
         } else {
             // Re-schedule with remaining delay if executed prematurely
-            app.container.jobCompletionScheduler.scheduleCompletion(job)
+            deps.jobCompletionScheduler().scheduleCompletion(job)
         }
 
         return Result.success()
