@@ -83,6 +83,21 @@ fun JobDetailScreen(
 
     var showEditNotesDialog by remember { mutableStateOf(false) }
     var notesInput by remember { mutableStateOf("") }
+    var hasDuplicateConflict by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(job) {
+        val j = job
+        if (j != null && j.status == JobStatus.ACTIVE && j.preliminaryDateEpochDay != null) {
+            hasDuplicateConflict = jobRepository.checkHasDuplicateActiveTerm(
+                clientId = j.clientId,
+                currentJobId = j.id,
+                dateEpochDay = j.preliminaryDateEpochDay,
+                timeMinute = j.preliminaryTimeMinute
+            )
+        } else {
+            hasDuplicateConflict = false
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -215,6 +230,22 @@ fun JobDetailScreen(
                             text = if (term.isNotBlank()) term else "Brak ustalonego terminu",
                             style = MaterialTheme.typography.bodyLarge
                         )
+                        if (hasDuplicateConflict) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "⚠️ Klient ma inne aktywne zlecenie w tym samym terminie.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
+                        }
 
                         if (j.calendarEventId != null) {
                             Spacer(modifier = Modifier.height(6.dp))
