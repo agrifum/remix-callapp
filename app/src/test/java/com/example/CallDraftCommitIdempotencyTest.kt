@@ -70,7 +70,7 @@ class CallDraftCommitIdempotencyTest {
             )
         )
 
-        // Simulate two concurrent IDLE handlers (e.g. PhoneStateReceiver + CallStateMonitor)
+        // Simulate two concurrent IDLE handlers (e.g. CallOverlayService teardown flush + CallStateMonitor)
         val deferred1 = async(Dispatchers.Default) {
             repository.flushAndCommitOnCallEnd(
                 callSessionId = sessionId,
@@ -354,9 +354,69 @@ class CallDraftCommitIdempotencyTest {
     }
 
     @Test
-    fun `Test B - auto wins before manual claim`() = runBlocking {
-        val sessionId = "session-auto-wins"
+    fun `auto path begins first, manual Save arrives before final commit - manual intent is not silently lost`() = runBlocking {
+        val sessionId = "session-auto-first-manual-upgrades"
         val phone = "+48444555666"
+        val key = PhoneNumberNormalizer.normalizeKey(phone)
+
+        repository.saveDraft(
+            CallDraftEntity(
+                callSessionId = sessionId,
+                phoneKey = key,
+                noteText = "Auto draft note that gets upgraded",
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+
+        // 1. Auto IDLE claims first (AUTO_IN_PROGRESS)
+        assertTrue(repository.tryClaimAutoCommit(sessionId))
+        assertEquals(CallDraftRepository.SessionState.AUTO_IN_PROGRESS, repository.getSessionState(sessionId))
+
+        // 2. User taps Save before auto finalizes; manual request is registered
+        val manualReq = OverlayCommitRequest(
+            callSessionId = sessionId,
+            phone = key,
+            noteText = "Upgraded manual note",
+            markAsClient = true,
+            clientDisplayName = "Marek Mostowiak",
+            createJob = true,
+            callDirection = CallDirection.OUTGOING
+        )
+
+        // Concurrent execution: auto commit and manual commit race
+        val deferredAuto = async(Dispatchers.Default) {
+            repository.flushAndCommitOnCallEnd(
+                callSessionId = sessionId,
+                latestDraft = null,
+                callDirection = CallDirection.OUTGOING
+            )
+        }
+        val deferredManual = async(Dispatchers.Default) {
+            repository.commitOverlaySession(manualReq)
+        }
+
+        awaitAll(deferredAuto, deferredManual)
+
+        // Verify result: manual intent was NOT lost. Client and Job WERE created. Exactly 1 note persisted.
+        val notes = database.noteDao().getActiveNotesForPhoneSync(key)
+        assertEquals(1, notes.size)
+        assertEquals("Upgraded manual note", notes.first().rawText)
+
+        val client = database.clientDao().getClientByPhoneKeySync(key)
+        assertNotNull("Client must be created because manual intent superseded auto fallback", client)
+        assertEquals("Marek Mostowiak", client?.displayName)
+
+        val jobs = database.jobDao().getAllJobsForClientSync(client!!.id)
+        assertEquals(1, jobs.size)
+
+        assertNull(database.callDraftDao().getDraftSync(sessionId))
+        assertTrue(repository.isSessionCommitted(sessionId))
+    }
+
+    @Test
+    fun `auto path begins first, Do zadan arrives before final commit - Task intent is not silently lost`() = runBlocking {
+        val sessionId = "session-auto-first-task-upgrades"
+        val phone = "+48333444555"
         val key = PhoneNumberNormalizer.normalizeKey(phone)
 
         repository.saveDraft(
@@ -368,20 +428,91 @@ class CallDraftCommitIdempotencyTest {
             )
         )
 
-        // 1. Auto commit executes directly via flushAndCommitOnCallEnd (which claims auto internally)
+        // Auto claims first
+        assertTrue(repository.tryClaimAutoCommit(sessionId))
+
+        val taskReq = OverlayCommitRequest(
+            callSessionId = sessionId,
+            phone = key,
+            noteText = "Zadanie zrobic wycene",
+            markAsClient = false,
+            createJob = false,
+            createOpenTask = true,
+            callDirection = CallDirection.INCOMING
+        )
+
+        val deferredAuto = async(Dispatchers.Default) {
+            repository.flushAndCommitOnCallEnd(
+                callSessionId = sessionId,
+                latestDraft = null,
+                callDirection = CallDirection.INCOMING
+            )
+        }
+        val deferredManual = async(Dispatchers.Default) {
+            repository.commitOverlaySession(taskReq)
+        }
+
+        awaitAll(deferredAuto, deferredManual)
+
+        // Verify Task was created and linked to Note
+        val notes = database.noteDao().getActiveNotesForPhoneSync(key)
+        assertEquals(1, notes.size)
+        assertEquals("Zadanie zrobic wycene", notes.first().rawText)
+
+        val tasks = database.taskDao().getAllTasksSync()
+        assertEquals(1, tasks.size)
+        assertEquals(notes.first().id, tasks.first().noteId)
+        assertEquals(com.example.core.model.TaskStatus.OPEN, tasks.first().status)
+
+        assertNull(database.callDraftDao().getDraftSync(sessionId))
+        assertTrue(repository.isSessionCommitted(sessionId))
+    }
+
+    @Test
+    fun `auto commit already finalized - late manual request does not create duplicate Note or entities`() = runBlocking {
+        val sessionId = "session-auto-finalized-late-manual"
+        val phone = "+48222333444"
+        val key = PhoneNumberNormalizer.normalizeKey(phone)
+
+        repository.saveDraft(
+            CallDraftEntity(
+                callSessionId = sessionId,
+                phoneKey = key,
+                noteText = "Initial auto note",
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+
+        // 1. Auto finishes completely and finalizes
         repository.flushAndCommitOnCallEnd(
             callSessionId = sessionId,
             latestDraft = null,
-            callDirection = CallDirection.OUTGOING
+            callDirection = CallDirection.INCOMING
         )
 
-        // Verify result (Note-only commit, no client/job)
-        val notes = database.noteDao().getActiveNotesForPhoneSync(key)
-        assertEquals(1, notes.size)
-        assertEquals("Auto draft note", notes.first().rawText)
-        org.junit.Assert.assertNull(database.clientDao().getClientByPhoneKeySync(key))
-        assertNull(database.callDraftDao().getDraftSync(sessionId))
         assertTrue(repository.isSessionCommitted(sessionId))
+        val initialNotes = database.noteDao().getActiveNotesForPhoneSync(key)
+        assertEquals(1, initialNotes.size)
+        assertEquals("Initial auto note", initialNotes.first().rawText)
+
+        // 2. Late manual request arrives after session is already committed
+        val lateManualReq = OverlayCommitRequest(
+            callSessionId = sessionId,
+            phone = key,
+            noteText = "Late manual note should be rejected",
+            markAsClient = true,
+            createJob = true,
+            createOpenTask = true,
+            callDirection = CallDirection.INCOMING
+        )
+
+        repository.commitOverlaySession(lateManualReq)
+
+        // 3. Verify no duplicate note, client, or job was created
+        val finalNotes = database.noteDao().getActiveNotesForPhoneSync(key)
+        assertEquals("Exactly one note must remain", 1, finalNotes.size)
+        assertEquals("Original note must be retained", "Initial auto note", finalNotes.first().rawText)
+        assertNull("Late manual request after finalization must not create Client", database.clientDao().getClientByPhoneKeySync(key))
     }
 
     @Test
@@ -399,8 +530,8 @@ class CallDraftCommitIdempotencyTest {
             )
         )
 
-        // Close database to trigger exception
-        database.close()
+        // Drop table to deterministically trigger SQLite transaction failure
+        database.openHelper.writableDatabase.execSQL("DROP TABLE clients")
 
         val req = OverlayCommitRequest(
             callSessionId = sessionId,
@@ -415,13 +546,9 @@ class CallDraftCommitIdempotencyTest {
             repository.commitOverlaySession(req)
         }
 
-        if (!result.isFailure) {
-            println("Test C failure: result was success! Exception: ${result.exceptionOrNull()}")
-        }
         assertTrue("Expected failure when database is closed", result.isFailure)
         org.junit.Assert.assertFalse(repository.isSessionCommitted(sessionId))
         val state = repository.getSessionState(sessionId)
-        println("DEBUG TEST C STATE: $state")
         assertEquals("Expected IDLE_ALLOWED but got $state", CallDraftRepository.SessionState.IDLE_ALLOWED, state)
     }
 
@@ -453,5 +580,81 @@ class CallDraftCommitIdempotencyTest {
         assertTrue(result.isFailure)
         org.junit.Assert.assertFalse(repository.isSessionCommitted(sessionId))
         assertEquals(CallDraftRepository.SessionState.IDLE_ALLOWED, repository.getSessionState(sessionId))
+    }
+
+    @Test
+    fun `completed session state is eventually removed safely`() = runBlocking {
+        val sessionId = "session-cleanup-test"
+        val phone = "+48999111222"
+        val key = PhoneNumberNormalizer.normalizeKey(phone)
+
+        repository.saveDraft(
+            CallDraftEntity(
+                callSessionId = sessionId,
+                phoneKey = key,
+                noteText = "Note to commit and cleanup",
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+
+        repository.flushAndCommitOnCallEnd(
+            callSessionId = sessionId,
+            latestDraft = null,
+            callDirection = CallDirection.INCOMING
+        )
+
+        assertTrue("Session must be marked committed", repository.isSessionCommitted(sessionId))
+
+        // Perform explicit session release/cleanup
+        val wasCommitted = repository.cleanupSession(sessionId)
+        assertTrue("cleanupSession must confirm session was committed", wasCommitted)
+
+        // Session must still be recognized as committed via bounded history
+        assertTrue("Session must remain committed in bounded history", repository.isSessionCommitted(sessionId))
+    }
+
+    @Test
+    fun `cleanup does not permit duplicate commit for an already-finalized call during synchronization boundary`() = runBlocking {
+        val sessionId = "session-cleanup-idempotency-test"
+        val phone = "+48999222333"
+        val key = PhoneNumberNormalizer.normalizeKey(phone)
+
+        repository.saveDraft(
+            CallDraftEntity(
+                callSessionId = sessionId,
+                phoneKey = key,
+                noteText = "Single note",
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+
+        // Commit session
+        repository.flushAndCommitOnCallEnd(
+            callSessionId = sessionId,
+            latestDraft = null,
+            callDirection = CallDirection.INCOMING
+        )
+
+        assertEquals(1, database.noteDao().getActiveNotesForPhoneSync(key).size)
+
+        // Release session
+        repository.cleanupSession(sessionId)
+
+        // Attempt duplicate auto commit with a fresh draft
+        repository.flushAndCommitOnCallEnd(
+            callSessionId = sessionId,
+            latestDraft = CallDraftEntity(
+                callSessionId = sessionId,
+                phoneKey = key,
+                noteText = "Rogue duplicate note",
+                updatedAt = System.currentTimeMillis()
+            ),
+            callDirection = CallDirection.INCOMING
+        )
+
+        // Verify still exactly 1 note exists
+        val notes = database.noteDao().getActiveNotesForPhoneSync(key)
+        assertEquals("Duplicate commit must be prevented even after cleanup", 1, notes.size)
+        assertEquals("Single note", notes.first().rawText)
     }
 }

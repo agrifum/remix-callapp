@@ -19,8 +19,8 @@ import java.util.UUID
  * Acts solely as a lightweight metadata-only eligibility and trigger layer.
  *
  * Strict Privacy Contract:
- * - When Global SMS Analysis is OFF, exits immediately before parsing PDUs or constructing SmsMessage objects.
- * - When Client SMS Analysis is DISABLED, exits immediately without creating triggers or work.
+ * - When Global SMS Analysis is OFF or Client SMS Analysis is DISABLED, AI trigger creation and WorkManager analysis are blocked;
+ *   client reengagement for inactive clients is evaluated using metadata only without accessing message body.
  * - Raw SMS body is NEVER read, joined, parsed, or persisted by this receiver.
  */
 class SmsReceiver : BroadcastReceiver() {

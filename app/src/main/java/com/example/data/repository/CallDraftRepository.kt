@@ -64,29 +64,69 @@ class CallDraftRepository(
 
     private val sessionStates = ConcurrentHashMap<String, SessionState>()
     private val sessionMutexes = ConcurrentHashMap<String, Mutex>()
+    private val pendingManualRequests = ConcurrentHashMap<String, OverlayCommitRequest>()
+    private val activeSessionHolders = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+
+    // Bounded history of recently committed session IDs (LRU/FIFO, max 100 entries)
+    // Ensures isSessionCommitted remains true even after in-flight session structures are cleaned up.
+    private val committedSessionHistory: MutableSet<String> = java.util.Collections.synchronizedSet(
+        object : LinkedHashSet<String>() {
+            override fun add(element: String): Boolean {
+                val added = super.add(element)
+                while (size > 100) {
+                    val iterator = iterator()
+                    if (iterator.hasNext()) {
+                        iterator.next()
+                        iterator.remove()
+                    }
+                }
+                return added
+            }
+        }
+    )
 
     private fun getSessionMutex(callSessionId: String): Mutex {
         return sessionMutexes.computeIfAbsent(callSessionId) { Mutex() }
     }
 
+    private inline fun <T> withSessionHolder(callSessionId: String, block: () -> T): T {
+        activeSessionHolders.computeIfAbsent(callSessionId) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
+        try {
+            return block()
+        } finally {
+            val remaining = activeSessionHolders[callSessionId]?.decrementAndGet() ?: 0
+            if (remaining <= 0) {
+                activeSessionHolders.remove(callSessionId)
+                if (isSessionCommitted(callSessionId)) {
+                    sessionMutexes.remove(callSessionId)
+                    pendingManualRequests.remove(callSessionId)
+                }
+            }
+        }
+    }
+
     fun markSessionCommitted(callSessionId: String) {
         if (callSessionId.isNotBlank()) {
             sessionStates[callSessionId] = SessionState.COMMITTED
+            committedSessionHistory.add(callSessionId)
         }
     }
 
     fun isSessionCommitted(callSessionId: String): Boolean {
         if (callSessionId.isBlank()) return false
-        return sessionStates[callSessionId] == SessionState.COMMITTED
+        return sessionStates[callSessionId] == SessionState.COMMITTED || committedSessionHistory.contains(callSessionId)
     }
 
     /**
-     * Atomically tries to claim session ownership for manual commit from IDLE_ALLOWED.
-     * Returns true if successfully claimed (or already MANUAL_IN_PROGRESS/COMMITTED by this caller),
-     * false if AUTO_IN_PROGRESS or COMMITTED by auto.
+     * Atomically claims or upgrades session ownership for manual commit.
+     * If session is COMMITTED, returns false.
+     * If session is AUTO_IN_PROGRESS, upgrades session to MANUAL_IN_PROGRESS and returns true,
+     * ensuring explicit user intent (Save / Do zadań) is not dropped.
+     * If session is IDLE_ALLOWED or null or already MANUAL_IN_PROGRESS, transitions to MANUAL_IN_PROGRESS and returns true.
      */
     fun tryClaimManualCommit(callSessionId: String): Boolean {
         if (callSessionId.isBlank()) return false
+        if (committedSessionHistory.contains(callSessionId)) return false
         var claimed = false
         sessionStates.compute(callSessionId) { _, currentState ->
             when (currentState) {
@@ -94,16 +134,10 @@ class CallDraftRepository(
                     claimed = false
                     SessionState.COMMITTED
                 }
-                SessionState.AUTO_IN_PROGRESS -> {
-                    // Auto already claimed. Precedence rule: if auto won transition, do not let manual steal it.
-                    claimed = false
-                    SessionState.AUTO_IN_PROGRESS
-                }
-                SessionState.MANUAL_IN_PROGRESS -> {
-                    claimed = true
-                    SessionState.MANUAL_IN_PROGRESS
-                }
-                null, SessionState.IDLE_ALLOWED -> {
+                SessionState.AUTO_IN_PROGRESS,
+                SessionState.MANUAL_IN_PROGRESS,
+                null,
+                SessionState.IDLE_ALLOWED -> {
                     claimed = true
                     SessionState.MANUAL_IN_PROGRESS
                 }
@@ -118,6 +152,7 @@ class CallDraftRepository(
      */
     fun tryClaimAutoCommit(callSessionId: String): Boolean {
         if (callSessionId.isBlank()) return false
+        if (committedSessionHistory.contains(callSessionId)) return false
         var claimed = false
         sessionStates.compute(callSessionId) { _, currentState ->
             when (currentState) {
@@ -148,8 +183,21 @@ class CallDraftRepository(
 
     fun getSessionState(callSessionId: String): SessionState {
         if (callSessionId.isBlank()) return SessionState.IDLE_ALLOWED
+        if (committedSessionHistory.contains(callSessionId)) return SessionState.COMMITTED
         return sessionStates[callSessionId] ?: SessionState.IDLE_ALLOWED
     }
+
+    fun releaseSession(callSessionId: String): Boolean {
+        if (callSessionId.isBlank()) return false
+        val committed = isSessionCommitted(callSessionId)
+        pendingManualRequests.remove(callSessionId)
+        activeSessionHolders.remove(callSessionId)
+        sessionMutexes.remove(callSessionId)
+        sessionStates.remove(callSessionId)
+        return committed
+    }
+
+    fun cleanupSession(callSessionId: String): Boolean = releaseSession(callSessionId)
 
     fun getDraft(callSessionId: String): Flow<CallDraftEntity?> = callDraftDao.getDraft(callSessionId)
 
@@ -180,16 +228,27 @@ class CallDraftRepository(
         if (!tryClaimAutoCommit(callSessionId)) {
             return
         }
-        val mutex = getSessionMutex(callSessionId)
-        mutex.withLock {
-            try {
-                if (latestDraft != null && latestDraft.callSessionId == callSessionId) {
-                    saveDraft(latestDraft)
+        withSessionHolder(callSessionId) {
+            val mutex = getSessionMutex(callSessionId)
+            mutex.withLock {
+                try {
+                    // Check if manual commit claimed or registered intent before we acquired lock
+                    if (sessionStates[callSessionId] == SessionState.MANUAL_IN_PROGRESS) {
+                        val manualReq = pendingManualRequests.remove(callSessionId)
+                        if (manualReq != null) {
+                            performCommitOverlaySession(manualReq)
+                        }
+                        return
+                    }
+
+                    if (latestDraft != null && latestDraft.callSessionId == callSessionId) {
+                        saveDraft(latestDraft)
+                    }
+                    performCommitDraftOnCallEnd(callSessionId, callDirection, callTime)
+                } catch (e: Throwable) {
+                    resetSessionStateToIdle(callSessionId)
+                    throw e
                 }
-                performCommitDraftOnCallEnd(callSessionId, callDirection, callTime)
-            } catch (e: Throwable) {
-                resetSessionStateToIdle(callSessionId)
-                throw e
             }
         }
     }
@@ -204,13 +263,22 @@ class CallDraftRepository(
         if (!tryClaimAutoCommit(callSessionId)) {
             return
         }
-        val mutex = getSessionMutex(callSessionId)
-        mutex.withLock {
-            try {
-                performCommitDraftOnCallEnd(callSessionId, callDirection, callTime)
-            } catch (e: Throwable) {
-                resetSessionStateToIdle(callSessionId)
-                throw e
+        withSessionHolder(callSessionId) {
+            val mutex = getSessionMutex(callSessionId)
+            mutex.withLock {
+                try {
+                    if (sessionStates[callSessionId] == SessionState.MANUAL_IN_PROGRESS) {
+                        val manualReq = pendingManualRequests.remove(callSessionId)
+                        if (manualReq != null) {
+                            performCommitOverlaySession(manualReq)
+                        }
+                        return
+                    }
+                    performCommitDraftOnCallEnd(callSessionId, callDirection, callTime)
+                } catch (e: Throwable) {
+                    resetSessionStateToIdle(callSessionId)
+                    throw e
+                }
             }
         }
     }
@@ -220,6 +288,15 @@ class CallDraftRepository(
         callDirection: CallDirection?,
         callTime: Long?
     ) {
+        // Double check manual hasn't claimed right before Room transaction
+        if (sessionStates[callSessionId] == SessionState.MANUAL_IN_PROGRESS) {
+            val manualReq = pendingManualRequests.remove(callSessionId)
+            if (manualReq != null) {
+                performCommitOverlaySession(manualReq)
+            }
+            return
+        }
+
         val draft = callDraftDao.getDraftSync(callSessionId)
         if (draft == null) {
             markSessionCommitted(callSessionId)
@@ -253,127 +330,139 @@ class CallDraftRepository(
      */
     suspend fun commitOverlaySession(request: OverlayCommitRequest) {
         if (request.callSessionId.isBlank()) return
+        // Register manual intent immediately so in-flight auto commit can upgrade
+        pendingManualRequests[request.callSessionId] = request
+
         if (!tryClaimManualCommit(request.callSessionId)) {
-            // If manual cannot claim (e.g., auto already in progress or committed), return or wait/exit.
-            // Requirement: "If auto commit already atomically gained ownership earlier, do not artificially interrupt started Room transaction."
-            // But if tryClaimManualCommit returns false because of AUTO_IN_PROGRESS or COMMITTED, manual does not override.
+            // Already finalized/committed
+            pendingManualRequests.remove(request.callSessionId)
             return
         }
 
-        val mutex = getSessionMutex(request.callSessionId)
-        mutex.withLock {
-            if (isSessionCommitted(request.callSessionId)) {
-                return
-            }
-            val key = PhoneNumberNormalizer.normalizeKey(request.phone)
-            val now = System.currentTimeMillis()
-
-            try {
-                callDraftDao.getDraftSync(request.callSessionId)
-                database.withTransaction {
-                var clientId: String? = null
-                var existingClient = clientDao.getClientByPhoneKeySync(key)
-
-                if (request.markAsClient) {
-                    if (existingClient == null) {
-                        val newClientId = UUID.randomUUID().toString()
-                        val display = request.clientDisplayName?.takeIf { it.isNotBlank() }
-                            ?: ("Klient " + PhoneNumberNormalizer.formatDisplay(key))
-                        val newClient = ClientEntity(
-                            id = newClientId,
-                            phoneKey = key,
-                            phoneDisplay = PhoneNumberNormalizer.formatDisplay(key),
-                            displayName = display,
-                            nameSource = if (request.clientDisplayName != null) NameSource.CONTACT else NameSource.AUTO,
-                            createdAt = now,
-                            updatedAt = now
-                        )
-                        clientDao.insertClient(newClient)
-                        clientId = newClientId
-                    } else {
-                        clientId = existingClient.id
-                    }
-                } else {
-                    clientId = existingClient?.id
+        withSessionHolder(request.callSessionId) {
+            val mutex = getSessionMutex(request.callSessionId)
+            mutex.withLock {
+                if (isSessionCommitted(request.callSessionId)) {
+                    pendingManualRequests.remove(request.callSessionId)
+                    return
                 }
 
-                var noteId: String? = null
-                if (request.noteText.isNotBlank()) {
-                    val nId = UUID.randomUUID().toString()
-                    val note = NoteEntity(
-                        id = nId,
-                        phoneKey = key,
-                        rawText = request.noteText.trim(),
-                        source = NoteSource.CALL,
-                        sourceCallDirection = request.callDirection,
-                        sourceCallAt = request.callTimestamp ?: now,
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                    noteDao.insertNote(note)
-                    noteId = nId
-
-                    if (request.createOpenTask) {
-                        val task = TaskEntity(
-                            id = UUID.randomUUID().toString(),
-                            noteId = nId,
-                            status = TaskStatus.OPEN,
-                            createdAt = now
-                        )
-                        taskDao.insertTask(task)
-                    }
+                try {
+                    performCommitOverlaySession(request)
+                } catch (e: Throwable) {
+                    resetSessionStateToIdle(request.callSessionId)
+                    throw e
+                } finally {
+                    pendingManualRequests.remove(request.callSessionId)
                 }
-
-                if (request.createJob && clientId != null) {
-                    val jobId = UUID.randomUUID().toString()
-                    var serviceName: String? = null
-                    var defaultPrice: Long? = null
-                    if (!request.serviceId.isNullOrBlank()) {
-                        val service = serviceDao.getServiceByIdSync(request.serviceId)
-                        serviceName = service?.name
-                        defaultPrice = service?.defaultPriceMinor
-                    }
-
-                    val clientSnapshot = clientDao.getClientByIdSync(clientId)
-                    val job = JobEntity(
-                        id = jobId,
-                        clientId = clientId,
-                        serviceId = request.serviceId,
-                        serviceNameSnapshot = serviceName,
-                        priceMinor = defaultPrice,
-                        preliminaryDateEpochDay = request.preliminaryDateEpochDay,
-                        preliminaryTimeMinute = request.preliminaryTimeMinute,
-                        preliminaryTimeQualifier = TimeQualifier.EXACT,
-                        addressCitySnapshot = clientSnapshot?.city,
-                        addressDistrictSnapshot = clientSnapshot?.district,
-                        addressStreetSnapshot = clientSnapshot?.street,
-                        addressBuildingSnapshot = clientSnapshot?.buildingNumber,
-                        addressUnitSnapshot = clientSnapshot?.unitNumber,
-                        addressPostalCodeSnapshot = clientSnapshot?.postalCode,
-                        status = JobStatus.ACTIVE,
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                    jobDao.insertJob(job)
-
-                    val window = JobAnalysisWindowEntity(
-                        jobId = jobId,
-                        startedAt = now,
-                        reason = WindowReason.CREATED
-                    )
-                    windowDao.insertWindow(window)
-                }
-
-                callDraftDao.deleteDraft(request.callSessionId)
-            }
-
-                // Mark committed only after successful transaction completion
-                markSessionCommitted(request.callSessionId)
-            } catch (e: Throwable) {
-                resetSessionStateToIdle(request.callSessionId)
-                throw e
             }
         }
+    }
+
+    private suspend fun performCommitOverlaySession(request: OverlayCommitRequest) {
+        if (isSessionCommitted(request.callSessionId)) return
+        val key = PhoneNumberNormalizer.normalizeKey(request.phone)
+        val now = System.currentTimeMillis()
+
+        database.withTransaction {
+            var clientId: String? = null
+            val existingClient = clientDao.getClientByPhoneKeySync(key)
+
+            if (request.markAsClient) {
+                if (existingClient == null) {
+                    val newClientId = UUID.randomUUID().toString()
+                    val display = request.clientDisplayName?.takeIf { it.isNotBlank() }
+                        ?: ("Klient " + PhoneNumberNormalizer.formatDisplay(key))
+                    val newClient = ClientEntity(
+                        id = newClientId,
+                        phoneKey = key,
+                        phoneDisplay = PhoneNumberNormalizer.formatDisplay(key),
+                        displayName = display,
+                        nameSource = if (request.clientDisplayName != null) NameSource.CONTACT else NameSource.AUTO,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                    clientDao.insertClient(newClient)
+                    clientId = newClientId
+                } else {
+                    clientId = existingClient.id
+                }
+            } else {
+                clientId = existingClient?.id
+            }
+
+            var noteId: String? = null
+            if (request.noteText.isNotBlank()) {
+                val nId = UUID.randomUUID().toString()
+                val note = NoteEntity(
+                    id = nId,
+                    phoneKey = key,
+                    rawText = request.noteText.trim(),
+                    source = NoteSource.CALL,
+                    sourceCallDirection = request.callDirection,
+                    sourceCallAt = request.callTimestamp ?: now,
+                    createdAt = now,
+                    updatedAt = now
+                )
+                noteDao.insertNote(note)
+                noteId = nId
+
+                if (request.createOpenTask) {
+                    val task = TaskEntity(
+                        id = UUID.randomUUID().toString(),
+                        noteId = nId,
+                        status = TaskStatus.OPEN,
+                        createdAt = now
+                    )
+                    taskDao.insertTask(task)
+                }
+            }
+
+            if (request.createJob && clientId != null) {
+                val jobId = UUID.randomUUID().toString()
+                var serviceName: String? = null
+                var defaultPrice: Long? = null
+                if (!request.serviceId.isNullOrBlank()) {
+                    val service = serviceDao.getServiceByIdSync(request.serviceId)
+                    serviceName = service?.name
+                    defaultPrice = service?.defaultPriceMinor
+                }
+
+                val clientSnapshot = clientDao.getClientByIdSync(clientId)
+                val job = JobEntity(
+                    id = jobId,
+                    clientId = clientId,
+                    serviceId = request.serviceId,
+                    serviceNameSnapshot = serviceName,
+                    priceMinor = defaultPrice,
+                    preliminaryDateEpochDay = request.preliminaryDateEpochDay,
+                    preliminaryTimeMinute = request.preliminaryTimeMinute,
+                    preliminaryTimeQualifier = TimeQualifier.EXACT,
+                    addressCitySnapshot = clientSnapshot?.city,
+                    addressDistrictSnapshot = clientSnapshot?.district,
+                    addressStreetSnapshot = clientSnapshot?.street,
+                    addressBuildingSnapshot = clientSnapshot?.buildingNumber,
+                    addressUnitSnapshot = clientSnapshot?.unitNumber,
+                    addressPostalCodeSnapshot = clientSnapshot?.postalCode,
+                    status = JobStatus.ACTIVE,
+                    createdAt = now,
+                    updatedAt = now
+                )
+                jobDao.insertJob(job)
+
+                val window = JobAnalysisWindowEntity(
+                    jobId = jobId,
+                    startedAt = now,
+                    reason = WindowReason.CREATED
+                )
+                windowDao.insertWindow(window)
+            }
+
+            callDraftDao.deleteDraft(request.callSessionId)
+        }
+
+        // Mark committed only after successful transaction completion
+        markSessionCommitted(request.callSessionId)
     }
 }
 

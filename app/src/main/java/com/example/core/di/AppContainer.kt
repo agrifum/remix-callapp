@@ -67,6 +67,7 @@ class AppContainer(val context: Context) {
         jobDao = jobDao
     )
     val reengagementRepository = ReengagementRepository(
+        database = database,
         reengagementDao = reengagementEventDao,
         jobDao = jobDao,
         jobRepository = jobRepository

@@ -1,46 +1,57 @@
 package com.example.data.repository
 
+import androidx.room.withTransaction
 import com.example.core.model.JobStatus
 import com.example.core.model.ReengagementSource
 import com.example.core.model.ReengagementStatus
+import com.example.data.database.CallUppDatabase
 import com.example.data.dao.JobDao
 import com.example.data.dao.ReengagementEventDao
 import com.example.data.entity.JobEntity
 import com.example.data.entity.ReengagementEventEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 class ReengagementRepository(
+    private val database: CallUppDatabase,
     private val reengagementDao: ReengagementEventDao,
     private val jobDao: JobDao,
     private val jobRepository: JobRepository
 ) {
 
+    private val reengagementMutex = Mutex()
+
     val pendingEvents: Flow<List<ReengagementEventEntity>> = reengagementDao.getPendingEvents()
 
     suspend fun checkAndCreateReengagementEvent(clientId: String, source: ReengagementSource) {
-        val activeJobs = jobDao.getActiveJobsForClientSync(clientId)
-        if (activeJobs.isNotEmpty()) {
-            // Already has active jobs, no reengagement needed
-            return
-        }
+        reengagementMutex.withLock {
+            database.withTransaction {
+                val activeJobs = jobDao.getActiveJobsForClientSync(clientId)
+                if (activeJobs.isNotEmpty()) {
+                    // Already has active jobs, no reengagement needed
+                    return@withTransaction
+                }
 
-        val pastJob = jobDao.getLatestClosedOrCompletedJobForClient(clientId) ?: return
-        val existingPending = reengagementDao.getPendingEventForClient(clientId)
-        if (existingPending != null) {
-            // At most one PENDING event per Client
-            return
-        }
+                val pastJob = jobDao.getLatestClosedOrCompletedJobForClient(clientId) ?: return@withTransaction
+                val existingPending = reengagementDao.getPendingEventForClient(clientId)
+                if (existingPending != null) {
+                    // At most one PENDING event per Client
+                    return@withTransaction
+                }
 
-        val event = ReengagementEventEntity(
-            id = UUID.randomUUID().toString(),
-            clientId = clientId,
-            jobId = pastJob.id,
-            source = source,
-            occurredAt = System.currentTimeMillis(),
-            status = ReengagementStatus.PENDING
-        )
-        reengagementDao.insertEvent(event)
+                val event = ReengagementEventEntity(
+                    id = UUID.randomUUID().toString(),
+                    clientId = clientId,
+                    jobId = pastJob.id,
+                    source = source,
+                    occurredAt = System.currentTimeMillis(),
+                    status = ReengagementStatus.PENDING
+                )
+                reengagementDao.insertEvent(event)
+            }
+        }
     }
 
     suspend fun resumeJob(eventId: String, jobId: String) {
