@@ -1,6 +1,6 @@
 package com.example.data.repository
 
-import androidx.room.withTransaction
+import androidx.room3.withWriteTransaction
 import com.example.core.model.JobStatus
 import com.example.core.model.WindowReason
 import com.example.data.database.CallUppDatabase
@@ -54,7 +54,7 @@ class JobRepository(
         val jobId = if (job.id.isBlank()) UUID.randomUUID().toString() else job.id
         val finalJob = job.copy(id = jobId, updatedAt = System.currentTimeMillis())
 
-        database.withTransaction {
+        database.withWriteTransaction {
             jobDao.insertJob(finalJob)
             if (openAnalysisWindow && finalJob.status == JobStatus.ACTIVE) {
                 val window = JobAnalysisWindowEntity(
@@ -87,7 +87,7 @@ class JobRepository(
 
     suspend fun completeJob(jobId: String) {
         val now = System.currentTimeMillis()
-        database.withTransaction {
+        database.withWriteTransaction {
             jobDao.updateJobStatus(
                 id = jobId,
                 status = JobStatus.COMPLETED,
@@ -101,7 +101,7 @@ class JobRepository(
 
     suspend fun closeJob(jobId: String) {
         val now = System.currentTimeMillis()
-        database.withTransaction {
+        database.withWriteTransaction {
             jobDao.updateJobStatus(
                 id = jobId,
                 status = JobStatus.CLOSED,
@@ -116,7 +116,7 @@ class JobRepository(
     suspend fun reopenJob(jobId: String) {
         val now = System.currentTimeMillis()
         var reopenedJob: JobEntity? = null
-        database.withTransaction {
+        database.withWriteTransaction {
             jobDao.updateJobStatus(
                 id = jobId,
                 status = JobStatus.ACTIVE,
@@ -143,7 +143,7 @@ class JobRepository(
     suspend fun softDeleteJob(jobId: String) {
         val now = System.currentTimeMillis()
         var jobToDelete: JobEntity? = null
-        database.withTransaction {
+        database.withWriteTransaction {
             jobToDelete = jobDao.getJobByIdSync(jobId)
             jobDao.softDeleteJob(jobId, now)
             windowDao.closeAllWindowsForJob(jobId, now)
@@ -159,7 +159,7 @@ class JobRepository(
 
     suspend fun restoreJob(jobId: String) {
         var restoredJob: JobEntity? = null
-        database.withTransaction {
+        database.withWriteTransaction {
             jobDao.restoreJob(jobId)
             val job = jobDao.getJobByIdSync(jobId)
             if (job != null && job.status == JobStatus.ACTIVE) {

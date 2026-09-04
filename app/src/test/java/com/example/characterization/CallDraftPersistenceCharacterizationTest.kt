@@ -1,7 +1,7 @@
 ﻿package com.example.characterization
 
 import android.content.Context
-import androidx.room.Room
+import androidx.room3.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.model.CallDirection
 import com.example.core.model.JobStatus

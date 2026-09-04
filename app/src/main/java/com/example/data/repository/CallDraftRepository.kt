@@ -1,6 +1,6 @@
 package com.example.data.repository
 
-import androidx.room.withTransaction
+import androidx.room3.withWriteTransaction
 import com.example.core.model.CallDirection
 import com.example.core.model.JobStatus
 import com.example.core.model.NameSource
@@ -304,7 +304,7 @@ class CallDraftRepository(
         }
         if (draft.noteText.isNotBlank()) {
             val key = PhoneNumberNormalizer.normalizeKey(draft.phoneKey)
-            database.withTransaction {
+            database.withWriteTransaction {
                 val note = NoteEntity(
                     id = UUID.randomUUID().toString(),
                     phoneKey = key,
@@ -364,7 +364,7 @@ class CallDraftRepository(
         val key = PhoneNumberNormalizer.normalizeKey(request.phone)
         val now = System.currentTimeMillis()
 
-        database.withTransaction {
+        database.withWriteTransaction {
             var clientId: String? = null
             val existingClient = clientDao.getClientByPhoneKeySync(key)
 

@@ -1,6 +1,6 @@
 package com.example.ai
 
-import androidx.room.withTransaction
+import androidx.room3.withWriteTransaction
 import com.example.ai.model.AddressCandidate
 import com.example.ai.model.ClientAddressInput
 import com.example.ai.model.SmsExtractionInput
@@ -132,19 +132,19 @@ class SmsAnalysisCoordinator(
         }
 
         // 6. Apply field protection rules inside transaction with full re-validation
-        return database.withTransaction {
+        return database.withWriteTransaction {
             // Re-verify global setting
             val currentGlobalEnabled = appPreferences.smsAnalysisGlobalEnabled.first()
             if (!currentGlobalEnabled) {
                 triggerDao.updateState(triggerId, TriggerState.DISCARDED)
-                return@withTransaction false
+                return@withWriteTransaction false
             }
 
             // Re-verify client and analysis mode
             val currentClient = clientDao.getClientByIdSync(trigger.clientId)
             if (currentClient == null || currentClient.smsAnalysisMode == SmsAnalysisMode.DISABLED) {
                 triggerDao.updateState(triggerId, TriggerState.DISCARDED)
-                return@withTransaction false
+                return@withWriteTransaction false
             }
 
             // Helper to re-verify that a Job is still ACTIVE, not deleted, and has an open window covering receivedAt
@@ -167,7 +167,7 @@ class SmsAnalysisCoordinator(
             if (currentEligibleJobs.isEmpty()) {
                 // All jobs were closed, completed, or became ineligible during extraction: fail-closed!
                 triggerDao.updateState(triggerId, TriggerState.DISCARDED)
-                return@withTransaction false
+                return@withWriteTransaction false
             }
 
             // A. Address Candidate

@@ -1,9 +1,9 @@
 package com.example.data.database
 
 import android.content.Context
-import androidx.room.Database
-import androidx.room.Room
-import androidx.room.RoomDatabase
+import androidx.room3.Database
+import androidx.room3.Room
+import androidx.room3.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.dao.AiSuggestionDao
 import com.example.data.dao.CallDraftDao
@@ -74,8 +74,8 @@ abstract class CallUppDatabase : RoomDatabase() {
                     CallUppDatabase::class.java,
                     "callupp.db"
                 ).addCallback(object : Callback() {
-                    override fun onCreate(db: SupportSQLiteDatabase) {
-                        super.onCreate(db)
+                    override suspend fun onCreate(connection: androidx.sqlite.SQLiteConnection) {
+                        super.onCreate(connection)
                         CoroutineScope(Dispatchers.IO).launch {
                             seedDefaults(getInstance(context))
                         }

@@ -1,6 +1,6 @@
 package com.example.data.repository
 
-import androidx.room.withTransaction
+import androidx.room3.withWriteTransaction
 import com.example.core.model.JobStatus
 import com.example.core.model.ReengagementSource
 import com.example.core.model.ReengagementStatus
@@ -27,18 +27,18 @@ class ReengagementRepository(
 
     suspend fun checkAndCreateReengagementEvent(clientId: String, source: ReengagementSource) {
         reengagementMutex.withLock {
-            database.withTransaction {
+            database.withWriteTransaction {
                 val activeJobs = jobDao.getActiveJobsForClientSync(clientId)
                 if (activeJobs.isNotEmpty()) {
                     // Already has active jobs, no reengagement needed
-                    return@withTransaction
+                    return@withWriteTransaction
                 }
 
-                val pastJob = jobDao.getLatestClosedOrCompletedJobForClient(clientId) ?: return@withTransaction
+                val pastJob = jobDao.getLatestClosedOrCompletedJobForClient(clientId) ?: return@withWriteTransaction
                 val existingPending = reengagementDao.getPendingEventForClient(clientId)
                 if (existingPending != null) {
                     // At most one PENDING event per Client
-                    return@withTransaction
+                    return@withWriteTransaction
                 }
 
                 val event = ReengagementEventEntity(

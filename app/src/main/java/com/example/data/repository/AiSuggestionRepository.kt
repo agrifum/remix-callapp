@@ -1,6 +1,6 @@
 package com.example.data.repository
 
-import androidx.room.withTransaction
+import androidx.room3.withWriteTransaction
 import com.example.core.model.SuggestionStatus
 import com.example.core.model.SuggestionType
 import com.example.data.database.CallUppDatabase
@@ -53,7 +53,7 @@ class AiSuggestionRepository(
         val unit = json.optString("unitNumber").takeIf { it.isNotBlank() }
         val postal = json.optString("postalCode").takeIf { it.isNotBlank() }
 
-        database.withTransaction {
+        database.withWriteTransaction {
             val client = clientDao.getClientByIdSync(clientId)
             if (client != null) {
                 val updatedClient = client.copy(
@@ -98,7 +98,7 @@ class AiSuggestionRepository(
         val timeMinute = if (json.has("timeMinute")) json.optInt("timeMinute") else null
 
         var updatedJob: JobEntity? = null
-        database.withTransaction {
+        database.withWriteTransaction {
             val job = jobDao.getJobByIdSync(jobId)
             if (job != null) {
                 val updated = job.copy(
@@ -129,7 +129,7 @@ class AiSuggestionRepository(
         val json = JSONObject(suggestion.proposedValueJson)
         val info = json.optString("contactInfo")
 
-        database.withTransaction {
+        database.withWriteTransaction {
             val client = clientDao.getClientByIdSync(clientId)
             if (client != null && info.isNotBlank()) {
                 val current = client.additionalInfo
