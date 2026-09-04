@@ -31,6 +31,7 @@ import com.example.ui.screens.NumberDetailScreen
 import com.example.ui.screens.ServicesSettingsScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SimulatorScreen
+import com.example.ui.screens.SmsTemplatesScreen
 import com.example.ui.screens.TasksScreen
 import com.example.ui.screens.TrashScreen
 
@@ -201,6 +202,9 @@ fun AppNavHost(
                     },
                     onNavigateToTrash = {
                         navController.navigate(Screen.Trash.route)
+                    },
+                    onNavigateToSmsTemplates = {
+                        navController.navigate(Screen.SmsTemplates.route)
                     }
                 )
             }
@@ -208,6 +212,13 @@ fun AppNavHost(
             composable(Screen.ServicesSettings.route) {
                 ServicesSettingsScreen(
                     serviceRepository = container.serviceRepository,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.SmsTemplates.route) {
+                SmsTemplatesScreen(
+                    smsTemplateRepository = container.smsTemplateRepository,
                     onNavigateBack = { navController.popBackStack() }
                 )
             }

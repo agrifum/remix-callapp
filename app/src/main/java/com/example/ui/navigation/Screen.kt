@@ -19,6 +19,7 @@ sealed class Screen(val route: String, val title: String) {
     }
     object Settings : Screen("settings", "Ustawienia")
     object ServicesSettings : Screen("services_settings", "Cennik i Usługi")
+    object SmsTemplates : Screen("sms_templates", "Szablony SMS")
     object Trash : Screen("trash", "Kosz")
     object Simulator : Screen("simulator", "Symulator")
 }
