@@ -17,6 +17,8 @@ import com.example.data.repository.SmsTemplateRepository
 import com.example.data.repository.TaskRepository
 import com.example.system.calls.CallLogRepository
 import com.example.system.contacts.ContactLookupRepository
+import com.example.system.sms.DefaultSystemSmsReader
+import com.example.system.sms.SystemSmsReader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -76,6 +78,7 @@ class AppContainer(val context: Context) {
         noteDao = noteDao
     )
     val contactLookupRepository = ContactLookupRepository(context)
+    var systemSmsReader: SystemSmsReader = DefaultSystemSmsReader(context)
 
     val smsExtractionEngine: SmsExtractionEngine = FakeSmsExtractionEngine()
     val smsAnalysisCoordinator = SmsAnalysisCoordinator(

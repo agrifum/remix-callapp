@@ -38,12 +38,13 @@ class SmsAnalysisCoordinator(
 ) {
 
     /**
-     * Process an incoming SMS trigger through the extraction pipeline.
+     * Process an incoming SMS trigger through the extraction pipeline with strict pre-write
+     * revalidation of global settings, client mode, and Job ACTIVE / window status.
      */
     suspend fun processSmsTrigger(triggerId: String, smsBody: String): Boolean {
         val trigger = triggerDao.getTriggerById(triggerId) ?: return false
 
-        // 1. Check global and client eligibility
+        // 1. Check global and client eligibility before running extraction
         val globalEnabled = appPreferences.smsAnalysisGlobalEnabled.first()
         if (!globalEnabled) {
             triggerDao.updateState(triggerId, TriggerState.DISCARDED)
@@ -68,11 +69,11 @@ class SmsAnalysisCoordinator(
             return false
         }
 
-        // 3. Filter jobs with valid open analysis windows covering the SMS time
+        // 3. Filter jobs with valid open analysis windows covering the SMS arrival timestamp
         val eligibleJobs = mutableListOf<JobEntity>()
         for (job in activeJobs) {
             val window = windowDao.getOpenWindowForJob(job.id)
-            if (window != null && trigger.receivedAt >= window.startedAt) {
+            if (window != null && window.endedAt == null && trigger.receivedAt >= window.startedAt) {
                 eligibleJobs.add(job)
             }
         }
@@ -82,7 +83,7 @@ class SmsAnalysisCoordinator(
             return false
         }
 
-        // 4. Prepare sanitized input for extraction engine
+        // 4. Prepare sanitized input for extraction engine (input data minimization)
         val clientAddress = ClientAddressInput(
             city = client.city,
             district = client.district,
@@ -130,30 +131,67 @@ class SmsAnalysisCoordinator(
             return false
         }
 
-        // 6. Apply field protection rules inside transaction
-        database.withTransaction {
+        // 6. Apply field protection rules inside transaction with full re-validation
+        return database.withTransaction {
+            // Re-verify global setting
+            val currentGlobalEnabled = appPreferences.smsAnalysisGlobalEnabled.first()
+            if (!currentGlobalEnabled) {
+                triggerDao.updateState(triggerId, TriggerState.DISCARDED)
+                return@withTransaction false
+            }
+
+            // Re-verify client and analysis mode
+            val currentClient = clientDao.getClientByIdSync(trigger.clientId)
+            if (currentClient == null || currentClient.smsAnalysisMode == SmsAnalysisMode.DISABLED) {
+                triggerDao.updateState(triggerId, TriggerState.DISCARDED)
+                return@withTransaction false
+            }
+
+            // Helper to re-verify that a Job is still ACTIVE, not deleted, and has an open window covering receivedAt
+            suspend fun getStillValidJob(jobId: String): JobEntity? {
+                val job = jobDao.getJobByIdSync(jobId) ?: return null
+                if (job.status != JobStatus.ACTIVE || job.isArchived || job.deletedAt != null) return null
+                val window = windowDao.getOpenWindowForJob(job.id) ?: return null
+                if (window.endedAt != null || trigger.receivedAt < window.startedAt) return null
+                return job
+            }
+
+            // Re-fetch still-valid jobs at mutation time
+            val currentEligibleJobs = mutableListOf<JobEntity>()
+            for (job in eligibleJobs) {
+                val valid = getStillValidJob(job.id)
+                if (valid != null) {
+                    currentEligibleJobs.add(valid)
+                }
+            }
+            if (currentEligibleJobs.isEmpty()) {
+                // All jobs were closed, completed, or became ineligible during extraction: fail-closed!
+                triggerDao.updateState(triggerId, TriggerState.DISCARDED)
+                return@withTransaction false
+            }
+
             // A. Address Candidate
             val addr = extractionResult.addressCandidate
             if (addr != null && addr.confidence == "HIGH") {
                 if (clientAddress.isEmpty) {
                     if (addr.isCompleteEnough) {
                         // Safe to fill missing client address
-                        val updatedClient = client.copy(
-                            city = addr.city ?: client.city,
-                            district = addr.district ?: client.district,
-                            street = addr.street ?: client.street,
-                            buildingNumber = addr.buildingNumber ?: client.buildingNumber,
-                            unitNumber = addr.unitNumber ?: client.unitNumber,
-                            postalCode = addr.postalCode ?: client.postalCode,
+                        val updatedClient = currentClient.copy(
+                            city = addr.city ?: currentClient.city,
+                            district = addr.district ?: currentClient.district,
+                            street = addr.street ?: currentClient.street,
+                            buildingNumber = addr.buildingNumber ?: currentClient.buildingNumber,
+                            unitNumber = addr.unitNumber ?: currentClient.unitNumber,
+                            postalCode = addr.postalCode ?: currentClient.postalCode,
                             updatedAt = System.currentTimeMillis()
                         )
                         clientDao.updateClient(updatedClient)
 
-                        // Propagate to empty ACTIVE job snapshots
-                        eligibleJobs.forEach { job ->
-                            if (job.addressCitySnapshot.isNullOrBlank() && job.addressStreetSnapshot.isNullOrBlank()) {
+                        // Propagate ONLY to still-valid ACTIVE jobs that have empty address snapshots
+                        currentEligibleJobs.forEach { currentJob ->
+                            if (currentJob.addressCitySnapshot.isNullOrBlank() && currentJob.addressStreetSnapshot.isNullOrBlank()) {
                                 jobDao.updateJob(
-                                    job.copy(
+                                    currentJob.copy(
                                         addressCitySnapshot = updatedClient.city,
                                         addressDistrictSnapshot = updatedClient.district,
                                         addressStreetSnapshot = updatedClient.street,
@@ -168,7 +206,7 @@ class SmsAnalysisCoordinator(
                     }
                 } else {
                     // Client already has address -> NEVER overwrite automatically! Create suggestion
-                    val isDifferent = addr.street != client.street || addr.buildingNumber != client.buildingNumber
+                    val isDifferent = addr.street != currentClient.street || addr.buildingNumber != currentClient.buildingNumber
                     if (isDifferent) {
                         val json = JSONObject().apply {
                             put("city", addr.city)
@@ -181,7 +219,7 @@ class SmsAnalysisCoordinator(
                         suggestionDao.insertSuggestion(
                             AiSuggestionEntity(
                                 id = UUID.randomUUID().toString(),
-                                clientId = client.id,
+                                clientId = currentClient.id,
                                 type = SuggestionType.ADDRESS_CHANGE,
                                 proposedValueJson = json.toString(),
                                 sourceSmsAt = trigger.receivedAt,
@@ -195,12 +233,12 @@ class SmsAnalysisCoordinator(
             // B. Term Candidate
             val term = extractionResult.termCandidate
             if (term != null && term.confidence == "HIGH" && (term.dateEpochDay != null || term.timeMinute != null)) {
-                eligibleJobs.forEach { job ->
-                    val hasExistingTerm = job.preliminaryDateEpochDay != null || job.confirmedStartAt != null
+                currentEligibleJobs.forEach { currentJob ->
+                    val hasExistingTerm = currentJob.preliminaryDateEpochDay != null || currentJob.confirmedStartAt != null
                     if (!hasExistingTerm) {
                         // Empty term -> safe to fill preliminary term (NEVER auto-create Calendar event)
                         jobDao.updateJob(
-                            job.copy(
+                            currentJob.copy(
                                 preliminaryDateEpochDay = term.dateEpochDay,
                                 preliminaryTimeMinute = term.timeMinute,
                                 preliminaryTimeQualifier = term.qualifier,
@@ -217,8 +255,8 @@ class SmsAnalysisCoordinator(
                         suggestionDao.insertSuggestion(
                             AiSuggestionEntity(
                                 id = UUID.randomUUID().toString(),
-                                clientId = client.id,
-                                targetJobId = job.id,
+                                clientId = currentClient.id,
+                                targetJobId = currentJob.id,
                                 type = SuggestionType.TERM_CHANGE,
                                 proposedValueJson = json.toString(),
                                 sourceSmsAt = trigger.receivedAt,
@@ -238,7 +276,7 @@ class SmsAnalysisCoordinator(
                 suggestionDao.insertSuggestion(
                     AiSuggestionEntity(
                         id = UUID.randomUUID().toString(),
-                        clientId = client.id,
+                        clientId = currentClient.id,
                         type = SuggestionType.ADDITIONAL_CONTACT_INFO,
                         proposedValueJson = json.toString(),
                         sourceSmsAt = trigger.receivedAt,
@@ -248,13 +286,13 @@ class SmsAnalysisCoordinator(
             }
 
             // D. Summaries for eligible active jobs
-            val eligibleJobIdSet = eligibleJobs.map { it.id }.toSet()
+            val currentEligibleJobIdSet = currentEligibleJobs.map { it.id }.toSet()
             extractionResult.jobSummaries.forEach { summaryUpdate ->
-                if (eligibleJobIdSet.contains(summaryUpdate.jobId)) {
-                    val job = jobDao.getJobByIdSync(summaryUpdate.jobId)
-                    if (job != null && job.status == JobStatus.ACTIVE) {
+                if (currentEligibleJobIdSet.contains(summaryUpdate.jobId)) {
+                    val validJob = getStillValidJob(summaryUpdate.jobId)
+                    if (validJob != null) {
                         jobDao.updateJob(
-                            job.copy(
+                            validJob.copy(
                                 smsSummary = summaryUpdate.updatedSummary,
                                 updatedAt = System.currentTimeMillis()
                             )
@@ -263,17 +301,16 @@ class SmsAnalysisCoordinator(
                 }
             }
 
-            // E. Update last analyzed SMS on open windows
-            eligibleJobs.forEach { job ->
-                val window = windowDao.getOpenWindowForJob(job.id)
-                if (window != null) {
+            // E. Update last analyzed SMS on open windows for still-valid jobs
+            currentEligibleJobs.forEach { currentJob ->
+                val window = windowDao.getOpenWindowForJob(currentJob.id)
+                if (window != null && window.endedAt == null) {
                     windowDao.updateLastAnalyzedSms(window.id, trigger.receivedAt)
                 }
             }
 
             triggerDao.updateState(triggerId, TriggerState.PROCESSED)
+            true
         }
-
-        return true
     }
 }
