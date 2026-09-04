@@ -33,4 +33,5 @@ sealed class Screen(val route: String, val title: String) : NavKey {
     object SmsTemplates : Screen("sms_templates", "Szablony SMS")
     object Trash : Screen("trash", "Kosz")
     object Simulator : Screen("simulator", "Symulator")
+    object Onboarding : Screen("onboarding", "Wprowadzenie")
 }

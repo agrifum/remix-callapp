@@ -1,4 +1,4 @@
-﻿package com.example.ui.navigation
+package com.example.ui.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -11,6 +11,9 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
@@ -24,6 +27,7 @@ import com.example.ui.screens.JobDetailScreen
 import com.example.ui.screens.JobsScreen
 import com.example.ui.screens.NewJobScreen
 import com.example.ui.screens.NumberDetailScreen
+import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.ServicesSettingsScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SimulatorScreen
@@ -41,8 +45,16 @@ sealed class BottomNavItem(val screen: Screen, val title: String, val icon: andr
 fun AppNavHost(
     container: AppContainer
 ) {
+    val onboardingCompleted by container.appPreferences.onboardingCompleted.collectAsState(initial = null)
     val backStack = rememberNavBackStack(Screen.Calls)
     val currentScreen = backStack.lastOrNull() as? Screen ?: Screen.Calls
+
+    LaunchedEffect(onboardingCompleted) {
+        if (onboardingCompleted == false && !backStack.contains(Screen.Onboarding)) {
+            backStack.clear()
+            backStack.add(Screen.Onboarding)
+        }
+    }
 
     val bottomItems = listOf(
         BottomNavItem.Calls,
@@ -225,6 +237,15 @@ fun AppNavHost(
                         noteRepository = container.noteRepository,
                         taskRepository = container.taskRepository,
                         onNavigateBack = { popBackStack() }
+                    )
+                }
+
+                entry<Screen.Onboarding> {
+                    OnboardingScreen(
+                        appPreferences = container.appPreferences,
+                        onComplete = {
+                            navigateBottomTab(Screen.Calls)
+                        }
                     )
                 }
             }

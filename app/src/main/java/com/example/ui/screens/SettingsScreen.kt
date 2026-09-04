@@ -1,8 +1,11 @@
 package com.example.ui.screens
 
+import android.app.role.RoleManager
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,6 +28,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -41,7 +45,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +76,17 @@ fun SettingsScreen(
 
     val canDrawOverlays = remember { Settings.canDrawOverlays(context) }
 
+    val roleManager = remember { context.getSystemService(RoleManager::class.java) }
+    var isCallScreeningRoleHeld by remember {
+        mutableStateOf(roleManager?.isRoleHeld(RoleManager.ROLE_CALL_SCREENING) == true)
+    }
+
+    val roleRequestLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        isCallScreeningRoleHeld = roleManager?.isRoleHeld(RoleManager.ROLE_CALL_SCREENING) == true
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -91,7 +108,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Permissions & System Integrations Card
+            // Permissions & System Integrations Card (Overlay)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -131,6 +148,51 @@ fun SettingsScreen(
                                     Uri.parse("package:${context.packageName}")
                                 )
                                 context.startActivity(intent)
+                            }
+                        ) {
+                            Text("Włącz")
+                        }
+                    }
+                }
+            }
+
+            // Role Call Screening Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isCallScreeningRoleHeld) MaterialTheme.colorScheme.secondaryContainer
+                    else MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (isCallScreeningRoleHeld) Icons.Default.Check else Icons.Default.Phone,
+                        contentDescription = null,
+                        tint = if (isCallScreeningRoleHeld) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isCallScreeningRoleHeld) "Rola identyfikacji połączeń: Aktywna" else "Rola identyfikacji połączeń",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (isCallScreeningRoleHeld) "CallUpp identyfikuje połączenia przychodzące i wychodzące w czasie rzeczywistym."
+                            else "Ustaw CallUpp jako usługę sprawdzania połączeń, aby poprawnie odczytywać numery w Androidzie 10+.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    if (!isCallScreeningRoleHeld && roleManager?.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) == true) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING)
+                                roleRequestLauncher.launch(intent)
                             }
                         ) {
                             Text("Włącz")
