@@ -15,7 +15,7 @@ Brak finalnych promptów implementacyjnych. Szablony nie są rekordami READY.
 | AUD-SMS-JOB-LIFECYCLE-r2 | AUD-SMS-JOB | EXECUTED | 2026-09-04 | SP-017..SP-021, SP-025..SP-040, SP-047, SP-048, SP-056..SP-059, SP-064, SP-065, SP-066 | repository code (SMS, AI, Job, Room, WorkManager, Reengagement) | AUD-SMS-JOB-LIFECYCLE-r1 | Antigravity AI Pro / CallUpp Night Runner |
 | IMP-CORE-STABILITY-01-rev1 | CORE-STABILITY-01 | EXECUTED | 2026-09-04 | core stability repair; no product R-ID | AUD-BASE-2026-09-04, AUD-SMS-AI-JOB-LIFECYCLE-2026-09-04, CallDraftRepository, ReengagementRepository | none | Antigravity AI Pro |
 | IMP-MEGA-RUN-02 | MEGA-REPAIR-02 | EXECUTED | 2026-09-04 | SP-004..007, SP-013..021, SP-041..046, SP-066 | MASTER_SPEC.md, AUD-BASE-2026-09-04, AUD-SMS-AI-JOB-LIFECYCLE-2026-09-04 | none | Antigravity AI Pro |
-| IMP-MEGA-RUN-02R-r1 | MEGA-RUN-02R | EXECUTED | 2026-09-04 | CI repair, audit correction, static gap check | .github/workflows/verify.yml, harness/build-log.md, MASTER_SPEC.md | none | Antigravity AI Pro |
+| IMP-MEGA-RUN-02R-r1 | MEGA-RUN-02R | EXECUTED | 2026-09-04 | TRACEABILITY SP-001..SP-068 1:1 audit, CI repair, static gap check | docs/core/TRACEABILITY.md, docs/core/MASTER_SPEC.md, .github/workflows/verify.yml, harness/build-log.md | none | Antigravity AI Pro |
 
 Statusy: DRAFT, READY, EXECUTED, SUPERSEDED, BLOCKED.
 
