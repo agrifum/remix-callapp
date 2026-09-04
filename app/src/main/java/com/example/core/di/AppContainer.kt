@@ -91,4 +91,5 @@ class AppContainer(val context: Context) {
         appPreferences = appPreferences,
         extractionEngine = smsExtractionEngine
     )
+    val smsTriggerRecovery = com.example.system.work.SmsTriggerRecovery(context, this)
 }

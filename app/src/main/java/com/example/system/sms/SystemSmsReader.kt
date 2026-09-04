@@ -12,8 +12,14 @@ import kotlin.math.abs
 interface SystemSmsReader {
     /**
      * Attempts to find and read the single incoming SMS matching the given [senderPhoneKey]
-     * received within a narrow timestamp tolerance around [receivedAt].
-     * Returns the raw SMS body string, or null if no matching message exists.
+     * received at or around [receivedAt].
+     *
+     * Two-phase lookup contract:
+     * - Phase 1: Resolves unique candidate row by querying metadata ONLY (ID, address, timestamps).
+     *   Never projects or reads BODY in Phase 1.
+     *   Ambiguous candidates (e.g. two messages from the same sender within tolerance without an
+     *   exact timestamp match) fail closed and return null.
+     * - Phase 2: Queries BODY for exactly that single resolved row ID.
      */
     fun readSms(senderPhoneKey: String, receivedAt: Long): String?
 }
@@ -23,18 +29,26 @@ interface SystemSmsReader {
  */
 class DefaultSystemSmsReader(private val context: Context) : SystemSmsReader {
 
+    private data class SmsMetadataCandidate(
+        val id: Long,
+        val date: Long,
+        val dateSent: Long
+    )
+
     override fun readSms(senderPhoneKey: String, receivedAt: Long): String? {
         val contentResolver = context.contentResolver ?: return null
         val uri = Telephony.Sms.Inbox.CONTENT_URI
-        val projection = arrayOf(
+
+        // =====================================================================
+        // PHASE 1: Metadata-only candidate resolution (NO BODY projected or read)
+        // =====================================================================
+        val metadataProjection = arrayOf(
             Telephony.Sms._ID,
             Telephony.Sms.ADDRESS,
-            Telephony.Sms.BODY,
             Telephony.Sms.DATE,
             Telephony.Sms.DATE_SENT
         )
 
-        // Tolerance window of +/- 10 seconds (10,000 ms)
         val tolerance = 10_000L
         val minTime = (receivedAt - tolerance).toString()
         val maxTime = (receivedAt + tolerance).toString()
@@ -42,36 +56,66 @@ class DefaultSystemSmsReader(private val context: Context) : SystemSmsReader {
         val selectionArgs = arrayOf(minTime, maxTime, minTime, maxTime)
         val sortOrder = "${Telephony.Sms.DATE} DESC"
 
+        val matchingCandidates = mutableListOf<SmsMetadataCandidate>()
+
         try {
-            contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
+            contentResolver.query(uri, metadataProjection, selection, selectionArgs, sortOrder)?.use { cursor ->
+                val idIdx = cursor.getColumnIndex(Telephony.Sms._ID)
                 val addressIdx = cursor.getColumnIndex(Telephony.Sms.ADDRESS)
-                val bodyIdx = cursor.getColumnIndex(Telephony.Sms.BODY)
                 val dateIdx = cursor.getColumnIndex(Telephony.Sms.DATE)
                 val dateSentIdx = cursor.getColumnIndex(Telephony.Sms.DATE_SENT)
 
-                var bestMatchBody: String? = null
-                var minDiff = Long.MAX_VALUE
-
                 while (cursor.moveToNext()) {
+                    val id = if (idIdx >= 0) cursor.getLong(idIdx) else continue
                     val address = if (addressIdx >= 0) cursor.getString(addressIdx) else null
-                    val body = if (bodyIdx >= 0) cursor.getString(bodyIdx) else null
                     val date = if (dateIdx >= 0) cursor.getLong(dateIdx) else 0L
                     val dateSent = if (dateSentIdx >= 0) cursor.getLong(dateSentIdx) else 0L
 
-                    if (body.isNullOrBlank()) continue
-
                     val candidateKey = PhoneNumberNormalizer.normalizeKey(address)
                     if (candidateKey == senderPhoneKey) {
-                        val diffSent = if (dateSent > 0) abs(dateSent - receivedAt) else Long.MAX_VALUE
-                        val diffDate = abs(date - receivedAt)
-                        val diff = minOf(diffSent, diffDate)
-                        if (diff <= tolerance && diff < minDiff) {
-                            minDiff = diff
-                            bestMatchBody = body
-                        }
+                        matchingCandidates.add(SmsMetadataCandidate(id, date, dateSent))
                     }
                 }
-                return bestMatchBody
+            }
+        } catch (_: SecurityException) {
+            return null
+        } catch (_: Exception) {
+            return null
+        }
+
+        if (matchingCandidates.isEmpty()) {
+            return null // Not found
+        }
+
+        // Resolution rule:
+        // 1. Prefer an exact timestamp match (dateSent or date == receivedAt)
+        val exactMatches = matchingCandidates.filter {
+            it.dateSent == receivedAt || it.date == receivedAt
+        }
+
+        val resolvedId: Long = when {
+            exactMatches.size == 1 -> exactMatches[0].id
+            exactMatches.size > 1 -> return null // Ambiguous: multiple exact matches. Fail closed!
+            matchingCandidates.size == 1 -> matchingCandidates[0].id // Single candidate in tolerance
+            else -> return null // Ambiguous: multiple candidates in tolerance without unique match. Fail closed!
+        }
+
+        // =====================================================================
+        // PHASE 2: Exact BODY read ONLY for the resolved unique _ID
+        // =====================================================================
+        val bodyProjection = arrayOf(Telephony.Sms.BODY)
+        val singleSelection = "${Telephony.Sms._ID} = ?"
+        val singleSelectionArgs = arrayOf(resolvedId.toString())
+
+        try {
+            contentResolver.query(uri, bodyProjection, singleSelection, singleSelectionArgs, null)?.use { cursor ->
+                val bodyIdx = cursor.getColumnIndex(Telephony.Sms.BODY)
+                if (cursor.moveToFirst() && bodyIdx >= 0) {
+                    val body = cursor.getString(bodyIdx)
+                    if (!body.isNullOrBlank()) {
+                        return body
+                    }
+                }
             }
         } catch (_: SecurityException) {
             return null

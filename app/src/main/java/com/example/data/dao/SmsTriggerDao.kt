@@ -7,6 +7,7 @@ import androidx.room.Query
 import androidx.room.Update
 import com.example.core.model.TriggerState
 import com.example.data.entity.SmsTriggerEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SmsTriggerDao {
@@ -20,9 +21,18 @@ interface SmsTriggerDao {
     @Query("SELECT * FROM sms_triggers WHERE state = 'PENDING' ORDER BY receivedAt ASC")
     suspend fun getPendingTriggers(): List<SmsTriggerEntity>
 
+    @Query("SELECT * FROM sms_triggers WHERE state = 'PENDING' ORDER BY receivedAt ASC")
+    fun observePendingTriggers(): Flow<List<SmsTriggerEntity>>
+
     @Query("SELECT * FROM sms_triggers WHERE id = :id LIMIT 1")
     suspend fun getTriggerById(id: String): SmsTriggerEntity?
 
-    @Query("UPDATE sms_triggers SET state = :state, attemptCount = attemptCount + 1 WHERE id = :id")
+    @Query("UPDATE sms_triggers SET state = :state WHERE id = :id")
     suspend fun updateState(id: String, state: TriggerState)
+
+    @Query("UPDATE sms_triggers SET attemptCount = attemptCount + 1 WHERE id = :id")
+    suspend fun incrementAttemptCount(id: String)
+
+    @Query("UPDATE sms_triggers SET state = :state, attemptCount = attemptCount + 1 WHERE id = :id")
+    suspend fun updateStateAndIncrementAttempt(id: String, state: TriggerState)
 }

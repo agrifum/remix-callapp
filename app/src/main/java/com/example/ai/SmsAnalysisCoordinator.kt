@@ -173,7 +173,11 @@ class SmsAnalysisCoordinator(
             // A. Address Candidate
             val addr = extractionResult.addressCandidate
             if (addr != null && addr.confidence == "HIGH") {
-                if (clientAddress.isEmpty) {
+                val isCurrentClientAddressEmpty = currentClient.city.isNullOrBlank() &&
+                    currentClient.street.isNullOrBlank() &&
+                    currentClient.buildingNumber.isNullOrBlank()
+
+                if (isCurrentClientAddressEmpty) {
                     if (addr.isCompleteEnough) {
                         // Safe to fill missing client address
                         val updatedClient = currentClient.copy(

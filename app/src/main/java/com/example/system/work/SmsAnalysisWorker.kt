@@ -15,7 +15,8 @@ import kotlinx.coroutines.flow.first
  * - Durable execution across process death.
  * - Re-evaluates global, client, and JobAnalysisWindow eligibility before reading SMS.
  * - Re-reads exactly one intended SMS from the system SMS provider (no arbitrary inbox scanning).
- * - Fails closed if SMS cannot be found or if eligibility expired.
+ * - Fails closed if SMS cannot be found or if ambiguity exists.
+ * - Authoritative durable retry tracking via persistent SmsTrigger.attemptCount in Room.
  * - Stale retries are safely marked DISCARDED.
  */
 class SmsAnalysisWorker(
@@ -65,11 +66,16 @@ class SmsAnalysisWorker(
             return Result.success()
         }
 
-        // 4. Re-read exactly one intended SMS from system provider
+        // 4. Record processing attempt deterministically in persistent storage
+        triggerDao.incrementAttemptCount(triggerId)
+        val currentAttempt = trigger.attemptCount + 1
+
+        // 5. Re-read exactly one intended SMS from system provider (two-phase resolution)
         val smsBody = app.container.systemSmsReader.readSms(trigger.senderPhoneKey, trigger.receivedAt)
         if (smsBody == null) {
-            // Target message not found in system SMS provider
-            return if (runAttemptCount < MAX_RETRIES) {
+            // Target message not found or ambiguous
+            return if (currentAttempt < MAX_RETRIES) {
+                triggerDao.updateState(triggerId, TriggerState.FAILED)
                 Result.retry()
             } else {
                 triggerDao.updateState(triggerId, TriggerState.DISCARDED)
@@ -77,15 +83,18 @@ class SmsAnalysisWorker(
             }
         }
 
-        // 5. Delegate to SmsAnalysisCoordinator for extraction and safe transactional writes
+        // 6. Delegate to SmsAnalysisCoordinator for extraction and safe transactional writes
         val success = app.container.smsAnalysisCoordinator.processSmsTrigger(triggerId, smsBody)
         return if (success) {
             Result.success()
         } else {
             val updatedTrigger = triggerDao.getTriggerById(triggerId)
-            if (updatedTrigger?.state == TriggerState.FAILED && runAttemptCount < MAX_RETRIES) {
+            if (updatedTrigger?.state == TriggerState.FAILED && currentAttempt < MAX_RETRIES) {
                 Result.retry()
             } else {
+                if (updatedTrigger?.state == TriggerState.FAILED) {
+                    triggerDao.updateState(triggerId, TriggerState.DISCARDED)
+                }
                 Result.success()
             }
         }

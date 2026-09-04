@@ -7,6 +7,7 @@ import androidx.work.WorkManager
 import com.example.core.di.AppContainer
 import com.example.system.work.JobStatusReconciler
 import com.example.system.work.TrashCleanupWorker
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 class CallUppApplication : Application() {
@@ -23,6 +24,17 @@ class CallUppApplication : Application() {
         callStateMonitor = com.example.system.calls.CallStateMonitor(this)
         ensureCallStateMonitoring()
         setupBackgroundWorkers()
+        recoverOutstandingTriggers()
+    }
+
+    private fun recoverOutstandingTriggers() {
+        container.appScope.launch {
+            try {
+                container.smsTriggerRecovery.recoverPendingTriggers()
+            } catch (_: Exception) {
+                // Non-blocking safe recovery
+            }
+        }
     }
 
     /**

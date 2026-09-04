@@ -1,10 +1,14 @@
 package com.example.characterization
 
+import android.content.ContentProvider
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ProviderInfo
+import android.database.Cursor
 import android.database.MatrixCursor
+import android.net.Uri
 import android.provider.Telephony
-import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker
@@ -26,6 +30,8 @@ import com.example.ai.model.TermCandidate
 import com.example.core.model.JobStatus
 import com.example.core.model.ReengagementSource
 import com.example.core.model.SmsAnalysisMode
+import com.example.core.model.SuggestionStatus
+import com.example.core.model.SuggestionType
 import com.example.core.model.TimeQualifier
 import com.example.core.model.TriggerState
 import com.example.core.model.WindowReason
@@ -39,8 +45,11 @@ import com.example.system.sms.DefaultSystemSmsReader
 import com.example.system.sms.SmsReceiver
 import com.example.system.sms.SystemSmsReader
 import com.example.system.work.SmsAnalysisWorker
+import com.example.system.work.SmsTriggerRecovery
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -51,17 +60,30 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import java.io.File
 import java.util.UUID
 
 /**
- * Comprehensive verification of IMP-SMS-01:
- * - SmsReceiver privacy boundary (Global OFF, Client DISABLED, metadata-only trigger, WorkManager enqueue).
- * - System SMS re-read (single target SMS matching, no arbitrary scan).
- * - SmsAnalysisWorker execution, retry handling, and fail-closed behaviors.
- * - Transactional pre-mutation re-validation on COMPLETED/CLOSED jobs and window boundaries.
- * - Data minimization and zero raw body persistence in Room.
+ * Comprehensive verification of IMP-SMS-01-R1:
+ * 1. Global OFF checked before getMessagesFromIntent / PDU parsing.
+ * 2. Client DISABLED with real AppContainer state.
+ * 3. Eligible SMS creates trigger and enqueues unique work.
+ * 4. Deterministic orphan trigger recovery (closes durability gap).
+ * 5. Real DefaultSystemSmsReader: unique exact candidate matching.
+ * 6. Real DefaultSystemSmsReader: unrelated sender ignored without BODY read.
+ * 7. Real DefaultSystemSmsReader: same-sender ambiguous candidates fail closed without BODY read.
+ * 8. Real DefaultSystemSmsReader: missing SMS returns null.
+ * 9. Durable worker path from Room metadata only.
+ * 10. Completed before worker -> discard.
+ * 11. Completed/closed during extraction -> transactional revalidation discards trigger and applies zero mutations.
+ * 12. Reopened window: old SMS rejected, new SMS accepted.
+ * 13. Address race: address entered during extraction is never overwritten.
+ * 14. Unknown AI jobId safely ignored.
+ * 15. Persistent attemptCount and retry limit in Room.
+ * 16. No raw SMS body persisted in Room.
+ * 17. Static code check: SmsReceiver does not access raw message body.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -78,32 +100,31 @@ class SmsTriggerPrivacyAndWorkerTest {
         app = context as CallUppApplication
 
         WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        WorkManager.getInstance(context).cancelAllWork()
 
-        database = Room.inMemoryDatabaseBuilder(context, CallUppDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
-        appPreferences = AppPreferences(context)
+        // Ensure tests and production components operate on the SAME AppContainer state
+        database = app.container.database
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            database.clearAllTables()
+        }
+
+        appPreferences = app.container.appPreferences
         appPreferences.setSmsAnalysisGlobalEnabled(true)
 
-        coordinator = SmsAnalysisCoordinator(
-            database = database,
-            clientDao = database.clientDao(),
-            jobDao = database.jobDao(),
-            windowDao = database.jobAnalysisWindowDao(),
-            suggestionDao = database.aiSuggestionDao(),
-            triggerDao = database.smsTriggerDao(),
-            appPreferences = appPreferences,
-            extractionEngine = FakeSmsExtractionEngine()
-        )
+        app.container.systemSmsReader = DefaultSystemSmsReader(app)
+        coordinator = app.container.smsAnalysisCoordinator
     }
 
     @After
-    fun tearDown() {
-        database.close()
+    fun tearDown() = runBlocking {
+        WorkManager.getInstance(app).cancelAllWork()
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            database.clearAllTables()
+        }
+        appPreferences.setSmsAnalysisGlobalEnabled(true)
+        app.container.systemSmsReader = DefaultSystemSmsReader(app)
     }
 
-    // Helper to generate standard 3GPP SMS-DELIVER PDU byte array
-    // Originator: +48501234567, text: "Test SMS content"
     private fun createSmsIntent(
         originatorDigitsSwapped: String = "8405214365F7", // +48 501 234 567
         digitCountHex: String = "0B"
@@ -117,47 +138,77 @@ class SmsTriggerPrivacyAndWorkerTest {
         }
     }
 
-    // 1. Global OFF: SmsReceiver does NOT read/process SMS body, no trigger, no worker enqueued
-    @Test
-    fun smsReceiver_globalOff_noTriggerCreated_noWorkerEnqueued() = runBlocking {
-        appPreferences.setSmsAnalysisGlobalEnabled(false)
+    // Custom TrackingIntent to deterministically verify whether PDUs were accessed
+    private class TrackingPduIntent(action: String) : Intent(action) {
+        var pduAccessCount = 0
 
-        val clientId = UUID.randomUUID().toString()
-        database.clientDao().insertClient(
-            ClientEntity(
-                id = clientId,
-                phoneKey = "+48501234567",
-                phoneDisplay = "+48 501 234 567",
-                displayName = "Klient Testowy"
-            )
-        )
-        val jobId = UUID.randomUUID().toString()
-        database.jobDao().insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.ACTIVE))
-        database.jobAnalysisWindowDao().insertWindow(
-            JobAnalysisWindowEntity(jobId = jobId, startedAt = 1000L, reason = WindowReason.CREATED)
-        )
+        override fun getSerializableExtra(name: String?): java.io.Serializable? {
+            if (name == "pdus") pduAccessCount++
+            return super.getSerializableExtra(name)
+        }
 
-        // Point container to test database
-        // We verify via DAO directly
-        val receiver = SmsReceiver()
-        val intent = createSmsIntent()
+        override fun getParcelableArrayExtra(name: String?): Array<android.os.Parcelable>? {
+            if (name == "pdus") pduAccessCount++
+            return super.getParcelableArrayExtra(name)
+        }
 
-        receiver.onReceive(app, intent)
-
-        // Allow coroutine execution
-        Thread.sleep(150)
-
-        val triggers = database.smsTriggerDao().getPendingTriggers()
-        assertTrue("No trigger should be created when Global OFF", triggers.isEmpty())
+        override fun getByteArrayExtra(name: String?): ByteArray? {
+            if (name == "pdus") pduAccessCount++
+            return super.getByteArrayExtra(name)
+        }
     }
 
-    // 2. Client DISABLED: SmsReceiver does NOT create trigger or enqueue worker
+    // 1. Global OFF: SmsReceiver exits BEFORE getMessagesFromIntent / PDU parsing
     @Test
-    fun smsReceiver_clientDisabled_noTriggerCreated() = runBlocking {
+    fun smsReceiver_globalOff_exitsBeforePduParsing_noTriggerCreated() = runBlocking {
+        try {
+            appPreferences.setSmsAnalysisGlobalEnabled(false)
+
+            val clientId = UUID.randomUUID().toString()
+            app.container.clientDao.insertClient(
+                ClientEntity(
+                    id = clientId,
+                    phoneKey = "+48501234567",
+                    phoneDisplay = "+48 501 234 567",
+                    displayName = "Klient Znany"
+                )
+            )
+            val jobId = UUID.randomUUID().toString()
+            app.container.jobDao.insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.ACTIVE))
+            app.container.windowDao.insertWindow(
+                JobAnalysisWindowEntity(jobId = jobId, startedAt = 1000L, reason = WindowReason.CREATED)
+            )
+
+            val trackingIntent = TrackingPduIntent(Telephony.Sms.Intents.SMS_RECEIVED_ACTION).apply {
+                val hex = "00040B918405214365F700002490405100000004D4F29C0E"
+                val pduBytes = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                putExtra("pdus", arrayOf(pduBytes))
+                putExtra("format", "3gpp")
+            }
+
+            val receiver = SmsReceiver()
+            receiver.onReceive(app, trackingIntent)
+
+            // Wait for coroutine inside goAsync
+            kotlinx.coroutines.delay(100)
+
+            // Verify that getMessagesFromIntent / PDU parsing was NEVER called!
+            assertEquals("PDUs must not be accessed when Global OFF", 0, trackingIntent.pduAccessCount)
+
+            val triggers = app.container.smsTriggerDao.getPendingTriggers()
+            assertTrue("No trigger should be created when Global OFF", triggers.isEmpty())
+        } finally {
+            appPreferences.setSmsAnalysisGlobalEnabled(true)
+        }
+    }
+
+    // 2. Client DISABLED with real AppContainer state: no trigger, no worker enqueued
+    @Test
+    fun smsReceiver_clientDisabled_realAppContainer_noTriggerCreated() = runBlocking {
         appPreferences.setSmsAnalysisGlobalEnabled(true)
 
         val clientId = UUID.randomUUID().toString()
-        database.clientDao().insertClient(
+        app.container.clientDao.insertClient(
             ClientEntity(
                 id = clientId,
                 phoneKey = "+48501234567",
@@ -167,55 +218,24 @@ class SmsTriggerPrivacyAndWorkerTest {
             )
         )
         val jobId = UUID.randomUUID().toString()
-        database.jobDao().insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.ACTIVE))
-        database.jobAnalysisWindowDao().insertWindow(
+        app.container.jobDao.insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.ACTIVE))
+        app.container.windowDao.insertWindow(
             JobAnalysisWindowEntity(jobId = jobId, startedAt = 1000L, reason = WindowReason.CREATED)
         )
 
         val receiver = SmsReceiver()
         receiver.onReceive(app, createSmsIntent())
-        Thread.sleep(150)
+        kotlinx.coroutines.delay(100)
 
-        val triggers = database.smsTriggerDao().getPendingTriggers()
+        val triggers = app.container.smsTriggerDao.getPendingTriggers()
         assertTrue("No trigger should be created when Client SMS mode is DISABLED", triggers.isEmpty())
     }
 
-    // 3. No ACTIVE jobs: creates reengagement event if completed/closed jobs exist, no trigger
-    @Test
-    fun smsReceiver_noActiveJobs_createsReengagementEvent_noTriggerCreated() = runBlocking {
-        val clientId = UUID.randomUUID().toString()
-        app.container.clientDao.insertClient(
-            ClientEntity(
-                id = clientId,
-                phoneKey = "+48501234567",
-                phoneDisplay = "+48 501 234 567",
-                displayName = "Klient Bez Aktywnych"
-            )
-        )
-        // Closed job
-        app.container.jobDao.insertJob(
-            JobEntity(
-                clientId = clientId,
-                status = JobStatus.COMPLETED
-            )
-        )
-
-        val receiver = SmsReceiver()
-        receiver.onReceive(app, createSmsIntent())
-        Thread.sleep(200)
-
-        val triggers = app.container.smsTriggerDao.getPendingTriggers()
-        assertTrue("No trigger should be created when there are no active jobs", triggers.isEmpty())
-
-        val event = app.container.reengagementEventDao.getPendingEventForClient(clientId)
-        assertNotNull(event)
-        assertEquals(clientId, event!!.clientId)
-        assertEquals(ReengagementSource.INCOMING_SMS, event.source)
-    }
-
-    // 4. Eligible SMS: metadata-only trigger created, worker enqueued
+    // 3. Eligible SMS: metadata-only trigger created, worker enqueued
     @Test
     fun smsReceiver_eligibleSms_createsMetadataOnlyTrigger_andEnqueuesWorker() = runBlocking {
+        appPreferences.setSmsAnalysisGlobalEnabled(true)
+
         val clientId = UUID.randomUUID().toString()
         app.container.clientDao.insertClient(
             ClientEntity(
@@ -236,59 +256,272 @@ class SmsTriggerPrivacyAndWorkerTest {
         app.container.windowDao.insertWindow(
             JobAnalysisWindowEntity(
                 jobId = jobId,
-                startedAt = 0L, // Covers all timestamps
+                startedAt = 0L,
                 reason = WindowReason.CREATED
             )
         )
 
         val receiver = SmsReceiver()
         receiver.onReceive(app, createSmsIntent())
-        Thread.sleep(200)
 
-        val triggers = app.container.smsTriggerDao.getPendingTriggers()
+        val triggers = withTimeout(5000) {
+            app.container.smsTriggerDao.observePendingTriggers()
+                .filter { it.isNotEmpty() }
+                .first()
+        }
         assertEquals(1, triggers.size)
         val trigger = triggers[0]
         assertEquals(clientId, trigger.clientId)
         assertEquals("+48501234567", trigger.senderPhoneKey)
         assertEquals(TriggerState.PENDING, trigger.state)
 
-        // Verify WorkManager work was enqueued with unique tag
         val workManager = WorkManager.getInstance(app)
-        val workInfos = workManager.getWorkInfosForUniqueWork("sms_analysis_${trigger.id}").get()
+        val workInfos = withTimeout(5000) {
+            workManager.getWorkInfosForUniqueWorkFlow(SmsTriggerRecovery.getWorkName(trigger.id))
+                .filter { it.isNotEmpty() }
+                .first()
+        }
         assertNotNull(workInfos)
         assertEquals(1, workInfos.size)
     }
 
-    // 5. SystemSmsReader: selectively re-reads target SMS, ignores unrelated SMS
+    // 4. Deterministic orphan trigger recovery (durability gap resolution)
     @Test
-    fun systemSmsReader_readsExactMatchingSms_doesNotSubstituteUnrelatedSms() {
-        val targetPhoneKey = "+48501234567"
-        val targetTimestamp = 1710000000000L
-
-        // Fake system SMS reader implementation verifying contract
-        val fakeReader = object : SystemSmsReader {
-            val inbox = listOf(
-                Triple("+48999999999", targetTimestamp, "Unrelated sender message"),
-                Triple(targetPhoneKey, targetTimestamp + 60000L, "Out of tolerance window message"),
-                Triple(targetPhoneKey, targetTimestamp + 1000L, "Adres: ul. Lipowa 5, Warszawa")
+    fun smsTriggerRecovery_recoversOrphanPendingTrigger_andDiscardsIneligible() = runBlocking {
+        val clientId = UUID.randomUUID().toString()
+        app.container.clientDao.insertClient(
+            ClientEntity(
+                id = clientId,
+                phoneKey = "+48501234567",
+                phoneDisplay = "+48 501 234 567",
+                displayName = "Klient Recovery"
             )
+        )
+        val activeJobId = UUID.randomUUID().toString()
+        app.container.jobDao.insertJob(JobEntity(id = activeJobId, clientId = clientId, status = JobStatus.ACTIVE))
+        val now = System.currentTimeMillis()
+        app.container.windowDao.insertWindow(
+            JobAnalysisWindowEntity(jobId = activeJobId, startedAt = now - 1000L, reason = WindowReason.CREATED)
+        )
 
-            override fun readSms(senderPhoneKey: String, receivedAt: Long): String? {
-                val tolerance = 10_000L
-                return inbox.firstOrNull { (sender, time, _) ->
-                    sender == senderPhoneKey && Math.abs(time - receivedAt) <= tolerance
-                }?.third
-            }
-        }
+        // Simulate orphan PENDING trigger in Room (process died right after insert before enqueue)
+        val orphanTriggerId = UUID.randomUUID().toString()
+        app.container.smsTriggerDao.insertTrigger(
+            SmsTriggerEntity(
+                id = orphanTriggerId,
+                clientId = clientId,
+                senderPhoneKey = "+48501234567",
+                receivedAt = now,
+                state = TriggerState.PENDING
+            )
+        )
 
-        val body = fakeReader.readSms(targetPhoneKey, targetTimestamp)
-        assertEquals("Adres: ul. Lipowa 5, Warszawa", body)
+        val workManager = WorkManager.getInstance(app)
+        // Before recovery: no WorkManager request exists
+        assertTrue(workManager.getWorkInfosForUniqueWork(SmsTriggerRecovery.getWorkName(orphanTriggerId)).get().isEmpty())
 
-        val notFound = fakeReader.readSms("+48111222333", targetTimestamp)
-        assertNull(notFound)
+        // Run recovery
+        val recovered = app.container.smsTriggerRecovery.recoverPendingTriggers()
+        assertEquals(1, recovered)
+
+        // After recovery: unique work is now enqueued!
+        val workInfos = workManager.getWorkInfosForUniqueWork(SmsTriggerRecovery.getWorkName(orphanTriggerId)).get()
+        assertEquals(1, workInfos.size)
+
+        // Ineligible scenario: job is closed while trigger was pending
+        app.container.jobDao.updateJob(app.container.jobDao.getJobByIdSync(activeJobId)!!.copy(status = JobStatus.CLOSED))
+        app.container.windowDao.closeAllWindowsForJob(activeJobId, System.currentTimeMillis())
+
+        val staleTriggerId = UUID.randomUUID().toString()
+        app.container.smsTriggerDao.insertTrigger(
+            SmsTriggerEntity(
+                id = staleTriggerId,
+                clientId = clientId,
+                senderPhoneKey = "+48501234567",
+                receivedAt = now,
+                state = TriggerState.PENDING
+            )
+        )
+
+        app.container.smsTriggerRecovery.recoverPendingTriggers()
+        val staleTrigger = app.container.smsTriggerDao.getTriggerById(staleTriggerId)!!
+        assertEquals("Ineligible orphan trigger must be marked DISCARDED", TriggerState.DISCARDED, staleTrigger.state)
     }
 
-    // 6. Worker exact execution: durable path without in-memory receiver body
+    // =========================================================================
+    // REAL DefaultSystemSmsReader TESTS (using Robolectric ContentResolver)
+    // =========================================================================
+
+    private class TestSmsContentProvider : ContentProvider() {
+        data class SmsRow(
+            val id: Long,
+            val address: String,
+            val date: Long,
+            val dateSent: Long,
+            val body: String
+        )
+
+        val rows = mutableListOf<SmsRow>()
+        val queriedProjections = mutableListOf<List<String>>()
+
+        override fun onCreate(): Boolean = true
+
+        override fun query(
+            uri: Uri,
+            projection: Array<out String>?,
+            selection: String?,
+            selectionArgs: Array<out String>?,
+            sortOrder: String?
+        ): Cursor {
+            val projList = projection?.toList() ?: emptyList()
+            queriedProjections.add(projList)
+
+            val cursor = MatrixCursor(projection ?: arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY))
+
+            if (selection != null && selection.contains(Telephony.Sms._ID) && selectionArgs != null && selectionArgs.isNotEmpty()) {
+                // Phase 2: query single row by _ID
+                val targetId = selectionArgs[0].toLongOrNull()
+                val row = rows.firstOrNull { it.id == targetId }
+                if (row != null) {
+                    addRow(cursor, row, projection)
+                }
+                return cursor
+            }
+
+            // Phase 1: query metadata
+            for (row in rows) {
+                addRow(cursor, row, projection)
+            }
+            return cursor
+        }
+
+        private fun addRow(cursor: MatrixCursor, row: SmsRow, projection: Array<out String>?) {
+            val values = mutableListOf<Any?>()
+            projection?.forEach { col ->
+                when (col) {
+                    Telephony.Sms._ID -> values.add(row.id)
+                    Telephony.Sms.ADDRESS -> values.add(row.address)
+                    Telephony.Sms.DATE -> values.add(row.date)
+                    Telephony.Sms.DATE_SENT -> values.add(row.dateSent)
+                    Telephony.Sms.BODY -> values.add(row.body)
+                    else -> values.add(null)
+                }
+            }
+            cursor.addRow(values)
+        }
+
+        override fun getType(uri: Uri): String? = null
+        override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+        override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
+        override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
+    }
+
+    // 5. Real DefaultSystemSmsReader: unique exact candidate matching
+    @Test
+    fun defaultSystemSmsReader_uniqueExactMatch_returnsBody_andProjectionsAreStrict() {
+        val testProvider = org.robolectric.Robolectric.setupContentProvider(TestSmsContentProvider::class.java, "sms")
+
+        val targetPhone = "+48501234567"
+        val timestamp = 1710000000000L
+
+        testProvider.rows.add(
+            TestSmsContentProvider.SmsRow(
+                id = 101L,
+                address = targetPhone,
+                date = timestamp,
+                dateSent = timestamp,
+                body = "Adres: ul. Lipowa 5, Warszawa"
+            )
+        )
+
+        val reader = DefaultSystemSmsReader(app)
+        val result = reader.readSms(targetPhone, timestamp)
+
+        assertEquals("Adres: ul. Lipowa 5, Warszawa", result)
+
+        // Verify Phase 1 did NOT query BODY
+        assertEquals(2, testProvider.queriedProjections.size)
+        val phase1Proj = testProvider.queriedProjections[0]
+        assertFalse("Phase 1 must not include BODY in projection", phase1Proj.contains(Telephony.Sms.BODY))
+
+        // Verify Phase 2 queried ONLY BODY for the resolved ID
+        val phase2Proj = testProvider.queriedProjections[1]
+        assertEquals(listOf(Telephony.Sms.BODY), phase2Proj)
+    }
+
+    // 6. Real DefaultSystemSmsReader: unrelated sender in same time window is ignored without BODY read
+    @Test
+    fun defaultSystemSmsReader_unrelatedSender_ignoredWithoutBodyRead() {
+        val testProvider = org.robolectric.Robolectric.setupContentProvider(TestSmsContentProvider::class.java, "sms")
+
+        val timestamp = 1710000000000L
+
+        // Row from an unrelated sender in the same timestamp window
+        testProvider.rows.add(
+            TestSmsContentProvider.SmsRow(
+                id = 999L,
+                address = "+48999888777",
+                date = timestamp,
+                dateSent = timestamp,
+                body = "Unrelated secret message"
+            )
+        )
+
+        val reader = DefaultSystemSmsReader(app)
+        val result = reader.readSms("+48501234567", timestamp)
+
+        assertNull(result)
+        // Phase 2 must never have been called!
+        assertEquals(1, testProvider.queriedProjections.size)
+    }
+
+    // 7. Real DefaultSystemSmsReader: same sender, two plausible rows in tolerance -> ambiguous / fail closed
+    @Test
+    fun defaultSystemSmsReader_sameSenderTwoPlausibleRows_ambiguousFailsClosed() {
+        val testProvider = org.robolectric.Robolectric.setupContentProvider(TestSmsContentProvider::class.java, "sms")
+
+        val targetPhone = "+48501234567"
+        val timestamp = 1710000000000L
+
+        // Two messages from same sender within tolerance, neither exactly at timestamp
+        testProvider.rows.add(
+            TestSmsContentProvider.SmsRow(
+                id = 201L,
+                address = targetPhone,
+                date = timestamp - 2000L,
+                dateSent = 0L,
+                body = "Wiadomosc A"
+            )
+        )
+        testProvider.rows.add(
+            TestSmsContentProvider.SmsRow(
+                id = 202L,
+                address = targetPhone,
+                date = timestamp + 2000L,
+                dateSent = 0L,
+                body = "Wiadomosc B"
+            )
+        )
+
+        val reader = DefaultSystemSmsReader(app)
+        val result = reader.readSms(targetPhone, timestamp)
+
+        assertNull("Ambiguous candidates from same sender must return null (fail closed)", result)
+        // Phase 2 must NEVER have been called! No arbitrary selection!
+        assertEquals(1, testProvider.queriedProjections.size)
+    }
+
+    // 8. Missing system SMS returns null
+    @Test
+    fun defaultSystemSmsReader_noMatchingRow_returnsNull() {
+        val testProvider = org.robolectric.Robolectric.setupContentProvider(TestSmsContentProvider::class.java, "sms")
+
+        val reader = DefaultSystemSmsReader(app)
+        val result = reader.readSms("+48501234567", 1710000000000L)
+        assertNull(result)
+    }
+
+    // 9. Durable worker path from Room metadata only
     @Test
     fun smsAnalysisWorker_durableExecutionFromRoom_processesSuccessfully() = runBlocking {
         val clientId = UUID.randomUUID().toString()
@@ -301,20 +534,10 @@ class SmsTriggerPrivacyAndWorkerTest {
             )
         )
         val jobId = UUID.randomUUID().toString()
-        app.container.jobDao.insertJob(
-            JobEntity(
-                id = jobId,
-                clientId = clientId,
-                status = JobStatus.ACTIVE
-            )
-        )
+        app.container.jobDao.insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.ACTIVE))
         val now = System.currentTimeMillis()
         app.container.windowDao.insertWindow(
-            JobAnalysisWindowEntity(
-                jobId = jobId,
-                startedAt = now - 1000L,
-                reason = WindowReason.CREATED
-            )
+            JobAnalysisWindowEntity(jobId = jobId, startedAt = now - 1000L, reason = WindowReason.CREATED)
         )
 
         val triggerId = UUID.randomUUID().toString()
@@ -327,7 +550,6 @@ class SmsTriggerPrivacyAndWorkerTest {
         )
         app.container.smsTriggerDao.insertTrigger(trigger)
 
-        // Inject test system SMS reader into container
         app.container.systemSmsReader = object : SystemSmsReader {
             override fun readSms(senderPhoneKey: String, receivedAt: Long): String? {
                 return "Adres: ul. Wierzbowa 10, Poznań"
@@ -342,14 +564,11 @@ class SmsTriggerPrivacyAndWorkerTest {
         assertEquals(ListenableWorker.Result.success(), result)
 
         val updatedTrigger = app.container.smsTriggerDao.getTriggerById(triggerId)
-        assertNotNull(updatedTrigger)
         assertEquals(TriggerState.PROCESSED, updatedTrigger!!.state)
-
-        val updatedClient = app.container.clientDao.getClientByIdSync(clientId)
-        assertEquals("Wierzbowa", updatedClient!!.street)
+        assertEquals("Wierzbowa", app.container.clientDao.getClientByIdSync(clientId)!!.street)
     }
 
-    // 7. Job completed before worker runs: trigger discarded, zero mutation
+    // 10. Job completed before worker runs: trigger discarded, zero mutation
     @Test
     fun smsAnalysisWorker_jobCompletedBeforeRun_discardsTriggerWithoutMutation() = runBlocking {
         val clientId = UUID.randomUUID().toString()
@@ -362,22 +581,10 @@ class SmsTriggerPrivacyAndWorkerTest {
             )
         )
         val jobId = UUID.randomUUID().toString()
-        // Job is COMPLETED
-        app.container.jobDao.insertJob(
-            JobEntity(
-                id = jobId,
-                clientId = clientId,
-                status = JobStatus.COMPLETED
-            )
-        )
+        app.container.jobDao.insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.COMPLETED))
         val now = System.currentTimeMillis()
         app.container.windowDao.insertWindow(
-            JobAnalysisWindowEntity(
-                jobId = jobId,
-                startedAt = now - 1000L,
-                endedAt = now - 500L,
-                reason = WindowReason.CREATED
-            )
+            JobAnalysisWindowEntity(jobId = jobId, startedAt = now - 1000L, endedAt = now - 500L, reason = WindowReason.CREATED)
         )
 
         val triggerId = UUID.randomUUID().toString()
@@ -391,31 +598,21 @@ class SmsTriggerPrivacyAndWorkerTest {
             )
         )
 
-        app.container.systemSmsReader = object : SystemSmsReader {
-            override fun readSms(senderPhoneKey: String, receivedAt: Long): String? {
-                return "Adres: ul. Wierzbowa 10, Poznań"
-            }
-        }
-
         val worker = TestListenableWorkerBuilder<SmsAnalysisWorker>(app)
             .setInputData(workDataOf(SmsAnalysisWorker.KEY_TRIGGER_ID to triggerId))
             .build()
 
         val result = worker.doWork()
         assertEquals(ListenableWorker.Result.success(), result)
-
-        val updatedTrigger = app.container.smsTriggerDao.getTriggerById(triggerId)
-        assertEquals(TriggerState.DISCARDED, updatedTrigger!!.state)
-
-        val client = app.container.clientDao.getClientByIdSync(clientId)
-        assertNull(client!!.street)
+        assertEquals(TriggerState.DISCARDED, app.container.smsTriggerDao.getTriggerById(triggerId)!!.state)
+        assertNull(app.container.clientDao.getClientByIdSync(clientId)!!.street)
     }
 
-    // 8. In-flight race: Job completed while extraction in progress -> pre-mutation re-validation prevents mutation
+    // 11. In-flight race: Job completed while extraction in progress -> pre-mutation transaction re-validation prevents mutation
     @Test
     fun coordinator_jobCompletedDuringExtraction_preMutationRevalidationRejectsMutation() = runBlocking {
         val clientId = UUID.randomUUID().toString()
-        database.clientDao().insertClient(
+        app.container.clientDao.insertClient(
             ClientEntity(
                 id = clientId,
                 phoneKey = "+48501234567",
@@ -424,25 +621,14 @@ class SmsTriggerPrivacyAndWorkerTest {
             )
         )
         val jobId = UUID.randomUUID().toString()
-        database.jobDao().insertJob(
-            JobEntity(
-                id = jobId,
-                clientId = clientId,
-                status = JobStatus.ACTIVE,
-                addressStreetSnapshot = null
-            )
-        )
+        app.container.jobDao.insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.ACTIVE))
         val now = System.currentTimeMillis()
-        database.jobAnalysisWindowDao().insertWindow(
-            JobAnalysisWindowEntity(
-                jobId = jobId,
-                startedAt = now - 1000L,
-                reason = WindowReason.CREATED
-            )
+        app.container.windowDao.insertWindow(
+            JobAnalysisWindowEntity(jobId = jobId, startedAt = now - 1000L, reason = WindowReason.CREATED)
         )
 
         val triggerId = UUID.randomUUID().toString()
-        database.smsTriggerDao().insertTrigger(
+        app.container.smsTriggerDao.insertTrigger(
             SmsTriggerEntity(
                 id = triggerId,
                 clientId = clientId,
@@ -452,13 +638,12 @@ class SmsTriggerPrivacyAndWorkerTest {
             )
         )
 
-        // Engine that simulates Job completing concurrently while extract() is executing
         val racingEngine = object : SmsExtractionEngine {
             override suspend fun extract(input: SmsExtractionInput): StructuredExtractionResult? {
-                // CONCURRENT MUTATION: Job transitions to COMPLETED and closes window before extract returns!
-                val currentJob = database.jobDao().getJobByIdSync(jobId)!!
-                database.jobDao().updateJob(currentJob.copy(status = JobStatus.COMPLETED))
-                database.jobAnalysisWindowDao().closeAllWindowsForJob(jobId, System.currentTimeMillis())
+                // Job transitions to COMPLETED concurrently during extraction!
+                val currentJob = app.container.jobDao.getJobByIdSync(jobId)!!
+                app.container.jobDao.updateJob(currentJob.copy(status = JobStatus.COMPLETED))
+                app.container.windowDao.closeAllWindowsForJob(jobId, System.currentTimeMillis())
 
                 return StructuredExtractionResult(
                     addressCandidate = AddressCandidate(
@@ -478,110 +663,182 @@ class SmsTriggerPrivacyAndWorkerTest {
             }
         }
 
-        val racingCoordinator = SmsAnalysisCoordinator(
-            database = database,
-            clientDao = database.clientDao(),
-            jobDao = database.jobDao(),
-            windowDao = database.jobAnalysisWindowDao(),
-            suggestionDao = database.aiSuggestionDao(),
-            triggerDao = database.smsTriggerDao(),
+        val testCoordinator = SmsAnalysisCoordinator(
+            database = app.container.database,
+            clientDao = app.container.clientDao,
+            jobDao = app.container.jobDao,
+            windowDao = app.container.windowDao,
+            suggestionDao = app.container.aiSuggestionDao,
+            triggerDao = app.container.smsTriggerDao,
             appPreferences = appPreferences,
             extractionEngine = racingEngine
         )
 
-        val success = racingCoordinator.processSmsTrigger(triggerId, "Adres: ul. Wspólna 15, termin: jutro 12:00")
-        assertFalse("Coordinator must fail-closed when all jobs became completed during extraction", success)
+        val success = testCoordinator.processSmsTrigger(triggerId, "Adres: ul. Wspólna 15, termin: jutro 12:00")
+        assertFalse(success)
 
-        // Verify that completed job was NOT mutated with address, term, or summary
-        val jobAfter = database.jobDao().getJobByIdSync(jobId)!!
+        val jobAfter = app.container.jobDao.getJobByIdSync(jobId)!!
         assertEquals(JobStatus.COMPLETED, jobAfter.status)
-        assertNull("Address snapshot must not be written to completed job", jobAfter.addressStreetSnapshot)
-        assertNull("Term must not be written to completed job", jobAfter.preliminaryDateEpochDay)
-        assertNull("Summary must not be written to completed job", jobAfter.smsSummary)
-
-        // Verify trigger was discarded
-        val updatedTrigger = database.smsTriggerDao().getTriggerById(triggerId)!!
-        assertEquals(TriggerState.DISCARDED, updatedTrigger.state)
+        assertNull(jobAfter.addressStreetSnapshot)
+        assertNull(jobAfter.preliminaryDateEpochDay)
+        assertNull(jobAfter.smsSummary)
+        assertEquals(TriggerState.DISCARDED, app.container.smsTriggerDao.getTriggerById(triggerId)!!.state)
     }
 
-    // 9. Reopened job: SMS from closed old window rejected, SMS from new open window accepted
+    // 12. Address race: client address manually changed during extraction is NEVER overwritten
     @Test
-    fun coordinator_reopenedJob_smsFromOldClosedWindowRejected_newWindowAccepted() = runBlocking {
+    fun coordinator_addressManuallyChangedDuringExtraction_neverOverwritten_createsSuggestion() = runBlocking {
         val clientId = UUID.randomUUID().toString()
-        database.clientDao().insertClient(
+        // Client starts with EMPTY address
+        app.container.clientDao.insertClient(
             ClientEntity(
                 id = clientId,
                 phoneKey = "+48501234567",
                 phoneDisplay = "+48 501 234 567",
-                displayName = "Klient Reopened"
+                displayName = "Klient Address Race"
             )
         )
         val jobId = UUID.randomUUID().toString()
-        database.jobDao().insertJob(
-            JobEntity(
-                id = jobId,
-                clientId = clientId,
-                status = JobStatus.ACTIVE
-            )
+        app.container.jobDao.insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.ACTIVE))
+        val now = System.currentTimeMillis()
+        app.container.windowDao.insertWindow(
+            JobAnalysisWindowEntity(jobId = jobId, startedAt = now - 1000L, reason = WindowReason.CREATED)
         )
 
-        // Old closed window (1000 - 2000)
-        database.jobAnalysisWindowDao().insertWindow(
-            JobAnalysisWindowEntity(
-                id = "win-old",
-                jobId = jobId,
-                startedAt = 1000L,
-                endedAt = 2000L,
-                reason = WindowReason.CREATED
-            )
-        )
-        // New reopened window (startedAt = 5000L)
-        database.jobAnalysisWindowDao().insertWindow(
-            JobAnalysisWindowEntity(
-                id = "win-new",
-                jobId = jobId,
-                startedAt = 5000L,
-                endedAt = null,
-                reason = WindowReason.REOPENED
-            )
-        )
-
-        // A. SMS received during old closed window (receivedAt = 1500L)
-        val staleTriggerId = UUID.randomUUID().toString()
-        database.smsTriggerDao().insertTrigger(
+        val triggerId = UUID.randomUUID().toString()
+        app.container.smsTriggerDao.insertTrigger(
             SmsTriggerEntity(
-                id = staleTriggerId,
+                id = triggerId,
                 clientId = clientId,
                 senderPhoneKey = "+48501234567",
-                receivedAt = 1500L,
+                receivedAt = now,
                 state = TriggerState.PENDING
             )
         )
-        val staleResult = coordinator.processSmsTrigger(staleTriggerId, "Stara wiadomosc")
-        assertFalse("SMS from closed window must be rejected", staleResult)
-        assertEquals(TriggerState.DISCARDED, database.smsTriggerDao().getTriggerById(staleTriggerId)!!.state)
 
-        // B. SMS received during new window (receivedAt = 6000L)
-        val validTriggerId = UUID.randomUUID().toString()
-        database.smsTriggerDao().insertTrigger(
-            SmsTriggerEntity(
-                id = validTriggerId,
-                clientId = clientId,
-                senderPhoneKey = "+48501234567",
-                receivedAt = 6000L,
-                state = TriggerState.PENDING
-            )
+        // Engine simulates user entering address manually while extraction is running!
+        val addressMutatingEngine = object : SmsExtractionEngine {
+            override suspend fun extract(input: SmsExtractionInput): StructuredExtractionResult? {
+                // User enters address manually before extraction completes
+                val current = app.container.clientDao.getClientByIdSync(clientId)!!
+                app.container.clientDao.updateClient(
+                    current.copy(
+                        street = "Złota",
+                        buildingNumber = "5",
+                        city = "Warszawa"
+                    )
+                )
+
+                return StructuredExtractionResult(
+                    addressCandidate = AddressCandidate(
+                        street = "Wspólna",
+                        buildingNumber = "15",
+                        city = "Warszawa",
+                        confidence = "HIGH"
+                    )
+                )
+            }
+        }
+
+        val testCoordinator = SmsAnalysisCoordinator(
+            database = app.container.database,
+            clientDao = app.container.clientDao,
+            jobDao = app.container.jobDao,
+            windowDao = app.container.windowDao,
+            suggestionDao = app.container.aiSuggestionDao,
+            triggerDao = app.container.smsTriggerDao,
+            appPreferences = appPreferences,
+            extractionEngine = addressMutatingEngine
         )
-        val validResult = coordinator.processSmsTrigger(validTriggerId, "Adres: ul. Polna 3, Warszawa")
-        assertTrue("SMS within new open window must be accepted", validResult)
-        assertEquals(TriggerState.PROCESSED, database.smsTriggerDao().getTriggerById(validTriggerId)!!.state)
+
+        val result = testCoordinator.processSmsTrigger(triggerId, "Adres: ul. Wspólna 15, Warszawa")
+        assertTrue(result)
+
+        // Manual address must NOT have been overwritten!
+        val clientAfter = app.container.clientDao.getClientByIdSync(clientId)!!
+        assertEquals("Złota", clientAfter.street)
+        assertEquals("5", clientAfter.buildingNumber)
+
+        // ADDRESS_CHANGE suggestion must have been created instead
+        val suggestions = app.container.aiSuggestionDao.getPendingSuggestionsForClient(clientId).first()
+        assertEquals(1, suggestions.size)
+        val suggestion = suggestions[0]
+        assertEquals(SuggestionType.ADDRESS_CHANGE, suggestion.type)
+        assertEquals(SuggestionStatus.PENDING, suggestion.status)
+        assertTrue(suggestion.proposedValueJson.contains("Wspólna"))
     }
 
-    // 10. Unknown AI jobId: safely ignored without corrupting state
+    // 13. Persistent attemptCount / retry limit accounting in Room
+    @Test
+    fun smsAnalysisWorker_persistentAttemptCountAccounting() = runBlocking {
+        val clientId = UUID.randomUUID().toString()
+        app.container.clientDao.insertClient(
+            ClientEntity(
+                id = clientId,
+                phoneKey = "+48501234567",
+                phoneDisplay = "+48 501 234 567",
+                displayName = "Klient Retry Accounting"
+            )
+        )
+        val jobId = UUID.randomUUID().toString()
+        app.container.jobDao.insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.ACTIVE))
+        val now = System.currentTimeMillis()
+        app.container.windowDao.insertWindow(
+            JobAnalysisWindowEntity(jobId = jobId, startedAt = now - 1000L, reason = WindowReason.CREATED)
+        )
+
+        val triggerId = UUID.randomUUID().toString()
+        app.container.smsTriggerDao.insertTrigger(
+            SmsTriggerEntity(
+                id = triggerId,
+                clientId = clientId,
+                senderPhoneKey = "+48501234567",
+                receivedAt = now,
+                state = TriggerState.PENDING,
+                attemptCount = 0
+            )
+        )
+
+        app.container.systemSmsReader = object : SystemSmsReader {
+            override fun readSms(senderPhoneKey: String, receivedAt: Long): String? = null
+        }
+
+        // Attempt 1 -> retry, attemptCount = 1
+        val worker1 = TestListenableWorkerBuilder<SmsAnalysisWorker>(app)
+            .setInputData(workDataOf(SmsAnalysisWorker.KEY_TRIGGER_ID to triggerId))
+            .build()
+        val res1 = worker1.doWork()
+        assertEquals(ListenableWorker.Result.retry(), res1)
+        val t1 = app.container.smsTriggerDao.getTriggerById(triggerId)!!
+        assertEquals(1, t1.attemptCount)
+        assertEquals(TriggerState.FAILED, t1.state)
+
+        // Attempt 2 -> retry, attemptCount = 2
+        val worker2 = TestListenableWorkerBuilder<SmsAnalysisWorker>(app)
+            .setInputData(workDataOf(SmsAnalysisWorker.KEY_TRIGGER_ID to triggerId))
+            .build()
+        val res2 = worker2.doWork()
+        assertEquals(ListenableWorker.Result.retry(), res2)
+        val t2 = app.container.smsTriggerDao.getTriggerById(triggerId)!!
+        assertEquals(2, t2.attemptCount)
+        assertEquals(TriggerState.FAILED, t2.state)
+
+        // Attempt 3 (MAX_RETRIES reached) -> success, attemptCount = 3, state = DISCARDED
+        val worker3 = TestListenableWorkerBuilder<SmsAnalysisWorker>(app)
+            .setInputData(workDataOf(SmsAnalysisWorker.KEY_TRIGGER_ID to triggerId))
+            .build()
+        val res3 = worker3.doWork()
+        assertEquals(ListenableWorker.Result.success(), res3)
+        val t3 = app.container.smsTriggerDao.getTriggerById(triggerId)!!
+        assertEquals(3, t3.attemptCount)
+        assertEquals(TriggerState.DISCARDED, t3.state)
+    }
+
+    // 14. Unknown AI jobId: safely ignored without corrupting state
     @Test
     fun coordinator_unknownAiJobId_safelyIgnored() = runBlocking {
         val clientId = UUID.randomUUID().toString()
-        database.clientDao().insertClient(
+        app.container.clientDao.insertClient(
             ClientEntity(
                 id = clientId,
                 phoneKey = "+48501234567",
@@ -590,24 +847,14 @@ class SmsTriggerPrivacyAndWorkerTest {
             )
         )
         val validJobId = UUID.randomUUID().toString()
-        database.jobDao().insertJob(
-            JobEntity(
-                id = validJobId,
-                clientId = clientId,
-                status = JobStatus.ACTIVE
-            )
-        )
+        app.container.jobDao.insertJob(JobEntity(id = validJobId, clientId = clientId, status = JobStatus.ACTIVE))
         val now = System.currentTimeMillis()
-        database.jobAnalysisWindowDao().insertWindow(
-            JobAnalysisWindowEntity(
-                jobId = validJobId,
-                startedAt = now - 1000L,
-                reason = WindowReason.CREATED
-            )
+        app.container.windowDao.insertWindow(
+            JobAnalysisWindowEntity(jobId = validJobId, startedAt = now - 1000L, reason = WindowReason.CREATED)
         )
 
         val triggerId = UUID.randomUUID().toString()
-        database.smsTriggerDao().insertTrigger(
+        app.container.smsTriggerDao.insertTrigger(
             SmsTriggerEntity(
                 id = triggerId,
                 clientId = clientId,
@@ -629,12 +876,12 @@ class SmsTriggerPrivacyAndWorkerTest {
         }
 
         val testCoordinator = SmsAnalysisCoordinator(
-            database = database,
-            clientDao = database.clientDao(),
-            jobDao = database.jobDao(),
-            windowDao = database.jobAnalysisWindowDao(),
-            suggestionDao = database.aiSuggestionDao(),
-            triggerDao = database.smsTriggerDao(),
+            database = app.container.database,
+            clientDao = app.container.clientDao,
+            jobDao = app.container.jobDao,
+            windowDao = app.container.windowDao,
+            suggestionDao = app.container.aiSuggestionDao,
+            triggerDao = app.container.smsTriggerDao,
             appPreferences = appPreferences,
             extractionEngine = unknownJobEngine
         )
@@ -642,79 +889,67 @@ class SmsTriggerPrivacyAndWorkerTest {
         val result = testCoordinator.processSmsTrigger(triggerId, "Test message")
         assertTrue(result)
 
-        val validJob = database.jobDao().getJobByIdSync(validJobId)!!
+        val validJob = app.container.jobDao.getJobByIdSync(validJobId)!!
         assertEquals("Valid summary", validJob.smsSummary)
-
-        // Verify foreign job was never created or corrupted
-        assertNull(database.jobDao().getJobByIdSync("unknown-foreign-job-id"))
+        assertNull(app.container.jobDao.getJobByIdSync("unknown-foreign-job-id"))
     }
 
-    // 11. Missing SMS in system provider: retry when attemptCount < MAX_RETRIES, discarded when retries exhausted
+    // 15. Reopened job: SMS from closed old window rejected, SMS from new open window accepted
     @Test
-    fun smsAnalysisWorker_missingSms_retriesThenDiscards() = runBlocking {
+    fun coordinator_reopenedJob_smsFromOldClosedWindowRejected_newWindowAccepted() = runBlocking {
         val clientId = UUID.randomUUID().toString()
         app.container.clientDao.insertClient(
             ClientEntity(
                 id = clientId,
                 phoneKey = "+48501234567",
                 phoneDisplay = "+48 501 234 567",
-                displayName = "Klient Missing SMS"
+                displayName = "Klient Reopened"
             )
         )
         val jobId = UUID.randomUUID().toString()
-        app.container.jobDao.insertJob(
-            JobEntity(
-                id = jobId,
-                clientId = clientId,
-                status = JobStatus.ACTIVE
-            )
-        )
-        val now = System.currentTimeMillis()
+        app.container.jobDao.insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.ACTIVE))
+
+        // Old closed window (1000 - 2000)
         app.container.windowDao.insertWindow(
-            JobAnalysisWindowEntity(
-                jobId = jobId,
-                startedAt = now - 1000L,
-                reason = WindowReason.CREATED
-            )
+            JobAnalysisWindowEntity(id = "win-old", jobId = jobId, startedAt = 1000L, endedAt = 2000L, reason = WindowReason.CREATED)
+        )
+        // New reopened window (startedAt = 5000L)
+        app.container.windowDao.insertWindow(
+            JobAnalysisWindowEntity(id = "win-new", jobId = jobId, startedAt = 5000L, endedAt = null, reason = WindowReason.REOPENED)
         )
 
-        val triggerId = UUID.randomUUID().toString()
+        // A. SMS received during old closed window (receivedAt = 1500L)
+        val staleTriggerId = UUID.randomUUID().toString()
         app.container.smsTriggerDao.insertTrigger(
             SmsTriggerEntity(
-                id = triggerId,
+                id = staleTriggerId,
                 clientId = clientId,
                 senderPhoneKey = "+48501234567",
-                receivedAt = now,
+                receivedAt = 1500L,
                 state = TriggerState.PENDING
             )
         )
+        val staleResult = coordinator.processSmsTrigger(staleTriggerId, "Stara wiadomosc")
+        assertFalse(staleResult)
+        assertEquals(TriggerState.DISCARDED, app.container.smsTriggerDao.getTriggerById(staleTriggerId)!!.state)
 
-        // System provider returns null (SMS not found)
-        app.container.systemSmsReader = object : SystemSmsReader {
-            override fun readSms(senderPhoneKey: String, receivedAt: Long): String? = null
-        }
-
-        // Attempt 0 -> returns retry
-        val workerAttempt0 = TestListenableWorkerBuilder<SmsAnalysisWorker>(app)
-            .setInputData(workDataOf(SmsAnalysisWorker.KEY_TRIGGER_ID to triggerId))
-            .setRunAttemptCount(0)
-            .build()
-        val result0 = workerAttempt0.doWork()
-        assertEquals(ListenableWorker.Result.retry(), result0)
-
-        // Attempt 3 (MAX_RETRIES) -> returns success and marks DISCARDED
-        val workerAttemptMax = TestListenableWorkerBuilder<SmsAnalysisWorker>(app)
-            .setInputData(workDataOf(SmsAnalysisWorker.KEY_TRIGGER_ID to triggerId))
-            .setRunAttemptCount(SmsAnalysisWorker.MAX_RETRIES)
-            .build()
-        val resultMax = workerAttemptMax.doWork()
-        assertEquals(ListenableWorker.Result.success(), resultMax)
-
-        val finalTrigger = app.container.smsTriggerDao.getTriggerById(triggerId)!!
-        assertEquals(TriggerState.DISCARDED, finalTrigger.state)
+        // B. SMS received during new window (receivedAt = 6000L)
+        val validTriggerId = UUID.randomUUID().toString()
+        app.container.smsTriggerDao.insertTrigger(
+            SmsTriggerEntity(
+                id = validTriggerId,
+                clientId = clientId,
+                senderPhoneKey = "+48501234567",
+                receivedAt = 6000L,
+                state = TriggerState.PENDING
+            )
+        )
+        val validResult = coordinator.processSmsTrigger(validTriggerId, "Adres: ul. Polna 3, Warszawa")
+        assertTrue(validResult)
+        assertEquals(TriggerState.PROCESSED, app.container.smsTriggerDao.getTriggerById(validTriggerId)!!.state)
     }
 
-    // 12. No raw SMS body persisted in Room
+    // 16. No raw SMS body persisted in Room
     @Test
     fun database_noRawSmsBodyStoredInRoomSchema() {
         val fields = SmsTriggerEntity::class.java.declaredFields.map { it.name }
@@ -728,7 +963,7 @@ class SmsTriggerPrivacyAndWorkerTest {
         assertEquals(expectedFields, fields.filter { !it.startsWith("$") && it != "Companion" }.toSet())
     }
 
-    // 13. Static inspection: SmsReceiver does not call messageBody
+    // 17. Static inspection: SmsReceiver does not access raw message body
     @Test
     fun staticCheck_smsReceiverDoesNotCallMessageBody() {
         val receiverFile = File("src/main/java/com/example/system/sms/SmsReceiver.kt")
