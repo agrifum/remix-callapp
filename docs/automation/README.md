@@ -13,7 +13,7 @@ Cross-platform local verification scripts execute the canonical verification pip
 
 ### Windows (PowerShell)
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scriptserify-local.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\verify-local.ps1
 ```
 
 ### Linux / macOS / WSL (Bash)
@@ -38,7 +38,9 @@ powershell -ExecutionPolicy Bypass -File .\scriptserify-local.ps1
 - **Triggers:** Push to `main`, Pull Requests targeting `main`.
 - **Permissions:** Least-privilege `contents: read`.
 - **Concurrency:** Automatically cancels redundant/stale in-progress workflow runs on the same ref (`cancel-in-progress: true`).
-- **Runner Environment:** `ubuntu-latest`, JDK 17 (Temurin).
+- **Runner Environment:** `ubuntu-latest`, JDK 21 (Temurin).
+  - GitHub Actions Gradle/Robolectric runtime: JDK 21.
+  - CallUpp application JVM target remains 17 (compilation and product target unchanged).
 - **Gradle & Wrapper:** Gradle Wrapper 9.3.1 managed via `gradle/actions/setup-gradle@v4`.
 - **Caching:** Gradle User Home and Wrapper distribution caching are managed automatically by `setup-gradle@v4`. Secondary caches are avoided to prevent contention.
 - **Wrapper Validation:** Automatically performed by `setup-gradle@v4`.

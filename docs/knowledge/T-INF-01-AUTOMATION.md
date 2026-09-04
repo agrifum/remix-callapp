@@ -41,3 +41,24 @@ Evidence and technical baseline for Phase INF-01 — Automation Foundation.
 
 - **Repository visibility & Branch protection:** GitHub repository visibility and branch protection / ruleset settings are administrative settings outside repository infrastructure and are not modified by INF-01.
 - **Product behavior:** INF-01 implements no product requirements; all product behavior decisions remain defined exclusively in `docs/core/MASTER_SPEC.md`.
+
+---
+
+## REPAIR CORRECTION & KNOWLEDGE BASE (INF-01R)
+
+### T-INF-01-06 — DOCUMENTED
+Robolectric 4.16 supports Android API 36, but executing Robolectric tests against API 36 requires JDK 21.
+
+### T-INF-01-07 — DOCUMENTED
+Gradle can run on a newer JVM than the JVM target used to compile application code. Gradle 9.3.1 supports Java 21.
+
+### T-INF-01-08 — DOCUMENTED
+Android Lint maps READ_SMS and RECEIVE_SMS to `android.hardware.telephony`. The lint-supported compatibility declaration is:
+```xml
+<uses-feature
+    android:name="android.hardware.telephony"
+    android:required="false" />
+```
+
+### CORRECTION
+The earlier INF-01 hypothesis/claim that the GitHub Actions Robolectric failure was caused by missing/offline targetSdk 36 SDK resources was not supported by the observed runtime exception (`DefaultSdkProvider.java:170 UnsupportedOperationException`). That hypothesis is superseded by the verified JDK compatibility finding: Robolectric 4.16.1 running on Android API 36 requires a JDK 21 runtime environment. Historical evidence is retained for audit traceability, but the verified root cause is the CI JDK runtime level.
