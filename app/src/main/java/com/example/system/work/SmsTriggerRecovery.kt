@@ -38,6 +38,12 @@ class SmsTriggerRecovery(
             return false
         }
 
+        // If trigger reached or exceeded retry limit, discard deterministically
+        if (trigger.attemptCount >= SmsAnalysisWorker.MAX_RETRIES) {
+            container.smsTriggerDao.updateState(trigger.id, TriggerState.DISCARDED)
+            return false
+        }
+
         // 1. Check global preference
         val globalEnabled = container.appPreferences.smsAnalysisGlobalEnabled.first()
         if (!globalEnabled) {
@@ -77,19 +83,21 @@ class SmsTriggerRecovery(
     }
 
     /**
-     * Recovers any outstanding PENDING triggers (e.g. after process death or startup).
+     * Recovers any outstanding PENDING or FAILED triggers (e.g. after process death or startup).
      * Re-evaluates eligibility and enqueues work idempotently.
      */
-    suspend fun recoverPendingTriggers(): Int {
-        val pendingTriggers = container.smsTriggerDao.getPendingTriggers()
+    suspend fun recoverOutstandingTriggers(): Int {
+        val recoverableTriggers = container.smsTriggerDao.getRecoverableTriggers()
         var recoveredCount = 0
-        for (trigger in pendingTriggers) {
+        for (trigger in recoverableTriggers) {
             if (enqueueOrDiscard(trigger)) {
                 recoveredCount++
             }
         }
         return recoveredCount
     }
+
+    suspend fun recoverPendingTriggers(): Int = recoverOutstandingTriggers()
 
     companion object {
         fun getWorkName(triggerId: String) = "sms_analysis_$triggerId"

@@ -33,11 +33,7 @@ class SmsReceiver : BroadcastReceiver() {
 
         app.container.appScope.launch {
             try {
-                // 1. Check global preference FIRST before touching intent PDUs / SmsMessage objects!
-                val globalEnabled = app.container.appPreferences.smsAnalysisGlobalEnabled.first()
-                if (!globalEnabled) return@launch
-
-                // 2. ONLY parse SMS metadata if global analysis is enabled
+                // 1. Parse SMS metadata ONLY (originating address and timestamp). Do NOT read raw SMS payload.
                 val msgs = Telephony.Sms.Intents.getMessagesFromIntent(intent)
                 if (msgs.isNullOrEmpty()) return@launch
 
@@ -47,14 +43,13 @@ class SmsReceiver : BroadcastReceiver() {
                 if (phoneKey.isBlank()) return@launch
                 val timestamp = msgs[0].timestampMillis
 
-                // 3. Resolve client and check effective SMS analysis mode WITHOUT reading SMS body
+                // 2. Resolve client WITHOUT reading SMS body
                 val client = app.container.clientRepository.getClientByPhoneKeySync(phoneKey) ?: return@launch
-                if (client.smsAnalysisMode == SmsAnalysisMode.DISABLED) return@launch
 
-                // 4. Client must have active jobs with open analysis window covering received timestamp
+                // 3. Inspect ACTIVE jobs. If no active jobs, evaluate reengagement unconditionally (no AI needed)
                 val activeJobs = app.container.jobRepository.getActiveJobsForClientSync(client.id)
                 if (activeJobs.isEmpty()) {
-                    // Check if reengagement applies (no active jobs, but has closed/completed jobs)
+                    // Reengagement does not require AI analysis or SMS body read
                     app.container.reengagementRepository.checkAndCreateReengagementEvent(
                         clientId = client.id,
                         source = ReengagementSource.INCOMING_SMS
@@ -62,6 +57,13 @@ class SmsReceiver : BroadcastReceiver() {
                     return@launch
                 }
 
+                // 4. ACTIVE jobs exist: AI analysis settings gate trigger & worker creation
+                val globalEnabled = app.container.appPreferences.smsAnalysisGlobalEnabled.first()
+                if (!globalEnabled) return@launch
+
+                if (client.smsAnalysisMode == SmsAnalysisMode.DISABLED) return@launch
+
+                // 5. Client must have active jobs with open analysis window covering received timestamp
                 var hasEligibleWindow = false
                 for (job in activeJobs) {
                     val window = app.container.windowDao.getOpenWindowForJob(job.id)

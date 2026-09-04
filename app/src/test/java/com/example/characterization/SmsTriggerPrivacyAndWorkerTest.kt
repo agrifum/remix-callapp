@@ -158,11 +158,24 @@ class SmsTriggerPrivacyAndWorkerTest {
         }
     }
 
-    // 1. Global OFF: SmsReceiver exits BEFORE getMessagesFromIntent / PDU parsing
+    private class TrackingSystemSmsReader(val delegate: SystemSmsReader) : SystemSmsReader {
+        var readCalls = 0
+        override fun readSms(senderPhoneKey: String, receivedAt: Long): String? {
+            readCalls++
+            return delegate.readSms(senderPhoneKey, receivedAt)
+        }
+    }
+
+    // A. Global OFF + ACTIVE eligible Job:
+    // - sender metadata resolved
+    // - no SmsTrigger, no worker enqueued, no SystemSmsReader body read, no extraction
     @Test
-    fun smsReceiver_globalOff_exitsBeforePduParsing_noTriggerCreated() = runBlocking {
+    fun smsReceiver_globalOff_activeEligibleJob_noTriggerOrWorkerOrBodyRead() = runBlocking {
         try {
             appPreferences.setSmsAnalysisGlobalEnabled(false)
+
+            val trackingReader = TrackingSystemSmsReader(app.container.systemSmsReader)
+            app.container.systemSmsReader = trackingReader
 
             val clientId = UUID.randomUUID().toString()
             app.container.clientDao.insertClient(
@@ -170,42 +183,89 @@ class SmsTriggerPrivacyAndWorkerTest {
                     id = clientId,
                     phoneKey = "+48501234567",
                     phoneDisplay = "+48 501 234 567",
-                    displayName = "Klient Znany"
+                    displayName = "Klient Aktywny"
                 )
             )
             val jobId = UUID.randomUUID().toString()
             app.container.jobDao.insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.ACTIVE))
             app.container.windowDao.insertWindow(
-                JobAnalysisWindowEntity(jobId = jobId, startedAt = 1000L, reason = WindowReason.CREATED)
+                JobAnalysisWindowEntity(jobId = jobId, startedAt = 0L, reason = WindowReason.CREATED)
             )
 
-            val trackingIntent = TrackingPduIntent(Telephony.Sms.Intents.SMS_RECEIVED_ACTION).apply {
-                val hex = "00040B918405214365F700002490405100000004D4F29C0E"
-                val pduBytes = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                putExtra("pdus", arrayOf(pduBytes))
-                putExtra("format", "3gpp")
-            }
-
             val receiver = SmsReceiver()
-            receiver.onReceive(app, trackingIntent)
-
-            // Wait for coroutine inside goAsync
+            receiver.onReceive(app, createSmsIntent())
             kotlinx.coroutines.delay(100)
-
-            // Verify that getMessagesFromIntent / PDU parsing was NEVER called!
-            assertEquals("PDUs must not be accessed when Global OFF", 0, trackingIntent.pduAccessCount)
 
             val triggers = app.container.smsTriggerDao.getPendingTriggers()
             assertTrue("No trigger should be created when Global OFF", triggers.isEmpty())
+            assertEquals("SystemSmsReader must not be called when Global OFF", 0, trackingReader.readCalls)
+
+            val suggestions = app.container.aiSuggestionDao.getPendingSuggestionsForJobSync(jobId)
+            assertTrue("No extraction/suggestions when Global OFF", suggestions.isEmpty())
         } finally {
             appPreferences.setSmsAnalysisGlobalEnabled(true)
         }
     }
 
-    // 2. Client DISABLED with real AppContainer state: no trigger, no worker enqueued
+    // B. Global OFF + no ACTIVE Job + recent COMPLETED/CLOSED:
+    // - ReengagementEvent created
+    // - no trigger, no worker, no body read
     @Test
-    fun smsReceiver_clientDisabled_realAppContainer_noTriggerCreated() = runBlocking {
+    fun smsReceiver_globalOff_noActiveJob_recentClosedJob_createsReengagementEvent() = runBlocking {
+        try {
+            appPreferences.setSmsAnalysisGlobalEnabled(false)
+
+            val trackingReader = TrackingSystemSmsReader(app.container.systemSmsReader)
+            app.container.systemSmsReader = trackingReader
+
+            val clientId = UUID.randomUUID().toString()
+            app.container.clientDao.insertClient(
+                ClientEntity(
+                    id = clientId,
+                    phoneKey = "+48501234567",
+                    phoneDisplay = "+48 501 234 567",
+                    displayName = "Klient Dawny"
+                )
+            )
+            val pastJobId = UUID.randomUUID().toString()
+            app.container.jobDao.insertJob(
+                JobEntity(
+                    id = pastJobId,
+                    clientId = clientId,
+                    status = JobStatus.COMPLETED
+                )
+            )
+
+            val receiver = SmsReceiver()
+            receiver.onReceive(app, createSmsIntent())
+
+            val events = withTimeout(5000) {
+                app.container.reengagementEventDao.getPendingEvents()
+                    .filter { it.isNotEmpty() }
+                    .first()
+            }
+            assertEquals(1, events.size)
+            assertEquals(clientId, events[0].clientId)
+            assertEquals(pastJobId, events[0].jobId)
+            assertEquals(ReengagementSource.INCOMING_SMS, events[0].source)
+
+            val triggers = app.container.smsTriggerDao.getPendingTriggers()
+            assertTrue("No trigger should be created for reengagement event", triggers.isEmpty())
+            assertEquals("No SMS body read for reengagement", 0, trackingReader.readCalls)
+        } finally {
+            appPreferences.setSmsAnalysisGlobalEnabled(true)
+        }
+    }
+
+    // C. Client DISABLED + no ACTIVE Job + recent COMPLETED/CLOSED:
+    // - ReengagementEvent created
+    // - no trigger, no worker, no body read
+    @Test
+    fun smsReceiver_clientDisabled_noActiveJob_recentClosedJob_createsReengagementEvent() = runBlocking {
         appPreferences.setSmsAnalysisGlobalEnabled(true)
+
+        val trackingReader = TrackingSystemSmsReader(app.container.systemSmsReader)
+        app.container.systemSmsReader = trackingReader
 
         val clientId = UUID.randomUUID().toString()
         app.container.clientDao.insertClient(
@@ -213,14 +273,60 @@ class SmsTriggerPrivacyAndWorkerTest {
                 id = clientId,
                 phoneKey = "+48501234567",
                 phoneDisplay = "+48 501 234 567",
-                displayName = "Klient Disabled",
+                displayName = "Klient Wylaczony",
+                smsAnalysisMode = SmsAnalysisMode.DISABLED
+            )
+        )
+        val pastJobId = UUID.randomUUID().toString()
+        app.container.jobDao.insertJob(
+            JobEntity(
+                id = pastJobId,
+                clientId = clientId,
+                status = JobStatus.CLOSED
+            )
+        )
+
+        val receiver = SmsReceiver()
+        receiver.onReceive(app, createSmsIntent())
+
+        val events = withTimeout(5000) {
+            app.container.reengagementEventDao.getPendingEvents()
+                .filter { it.isNotEmpty() }
+                .first()
+        }
+        assertEquals(1, events.size)
+        assertEquals(clientId, events[0].clientId)
+        assertEquals(pastJobId, events[0].jobId)
+        assertEquals(ReengagementSource.INCOMING_SMS, events[0].source)
+
+        val triggers = app.container.smsTriggerDao.getPendingTriggers()
+        assertTrue("No trigger should be created for reengagement event", triggers.isEmpty())
+        assertEquals("No SMS body read for reengagement", 0, trackingReader.readCalls)
+    }
+
+    // D. Client DISABLED + ACTIVE Job:
+    // - no trigger, no worker, no body read
+    @Test
+    fun smsReceiver_clientDisabled_activeJob_noTriggerOrWorkerOrBodyRead() = runBlocking {
+        appPreferences.setSmsAnalysisGlobalEnabled(true)
+
+        val trackingReader = TrackingSystemSmsReader(app.container.systemSmsReader)
+        app.container.systemSmsReader = trackingReader
+
+        val clientId = UUID.randomUUID().toString()
+        app.container.clientDao.insertClient(
+            ClientEntity(
+                id = clientId,
+                phoneKey = "+48501234567",
+                phoneDisplay = "+48 501 234 567",
+                displayName = "Klient Disabled Active",
                 smsAnalysisMode = SmsAnalysisMode.DISABLED
             )
         )
         val jobId = UUID.randomUUID().toString()
         app.container.jobDao.insertJob(JobEntity(id = jobId, clientId = clientId, status = JobStatus.ACTIVE))
         app.container.windowDao.insertWindow(
-            JobAnalysisWindowEntity(jobId = jobId, startedAt = 1000L, reason = WindowReason.CREATED)
+            JobAnalysisWindowEntity(jobId = jobId, startedAt = 0L, reason = WindowReason.CREATED)
         )
 
         val receiver = SmsReceiver()
@@ -229,6 +335,7 @@ class SmsTriggerPrivacyAndWorkerTest {
 
         val triggers = app.container.smsTriggerDao.getPendingTriggers()
         assertTrue("No trigger should be created when Client SMS mode is DISABLED", triggers.isEmpty())
+        assertEquals("SystemSmsReader must not be called when Client is DISABLED", 0, trackingReader.readCalls)
     }
 
     // 3. Eligible SMS: metadata-only trigger created, worker enqueued
@@ -346,6 +453,88 @@ class SmsTriggerPrivacyAndWorkerTest {
         app.container.smsTriggerRecovery.recoverPendingTriggers()
         val staleTrigger = app.container.smsTriggerDao.getTriggerById(staleTriggerId)!!
         assertEquals("Ineligible orphan trigger must be marked DISCARDED", TriggerState.DISCARDED, staleTrigger.state)
+    }
+
+    // E. FAILED trigger below retry limit + eligible: startup recovery restores/enqueues work
+    @Test
+    fun smsTriggerRecovery_failedTriggerBelowRetryLimit_restoresAndEnqueuesWork() = runBlocking {
+        val clientId = UUID.randomUUID().toString()
+        app.container.clientDao.insertClient(
+            ClientEntity(id = clientId, phoneKey = "+48501234567", phoneDisplay = "+48 501 234 567", displayName = "Klient Retry")
+        )
+        val activeJobId = UUID.randomUUID().toString()
+        app.container.jobDao.insertJob(JobEntity(id = activeJobId, clientId = clientId, status = JobStatus.ACTIVE))
+        val now = System.currentTimeMillis()
+        app.container.windowDao.insertWindow(
+            JobAnalysisWindowEntity(jobId = activeJobId, startedAt = now - 1000L, reason = WindowReason.CREATED)
+        )
+
+        // Insert FAILED trigger with attemptCount = 1 (below MAX_RETRIES = 3)
+        val triggerId = UUID.randomUUID().toString()
+        app.container.smsTriggerDao.insertTrigger(
+            SmsTriggerEntity(
+                id = triggerId,
+                clientId = clientId,
+                senderPhoneKey = "+48501234567",
+                receivedAt = now,
+                state = TriggerState.FAILED,
+                attemptCount = 1
+            )
+        )
+
+        val workManager = WorkManager.getInstance(app)
+        assertTrue(workManager.getWorkInfosForUniqueWork(SmsTriggerRecovery.getWorkName(triggerId)).get().isEmpty())
+
+        // Run recovery
+        val recovered = app.container.smsTriggerRecovery.recoverOutstandingTriggers()
+        assertEquals(1, recovered)
+
+        // Unique work enqueued
+        val workInfos = workManager.getWorkInfosForUniqueWork(SmsTriggerRecovery.getWorkName(triggerId)).get()
+        assertEquals(1, workInfos.size)
+    }
+
+    // F. FAILED trigger at/exceeding retry limit: DISCARDED, no new work
+    @Test
+    fun smsTriggerRecovery_failedTriggerAtRetryLimit_discardedWithoutWork() = runBlocking {
+        val clientId = UUID.randomUUID().toString()
+        app.container.clientDao.insertClient(
+            ClientEntity(id = clientId, phoneKey = "+48501234567", phoneDisplay = "+48 501 234 567", displayName = "Klient Exhausted")
+        )
+        val activeJobId = UUID.randomUUID().toString()
+        app.container.jobDao.insertJob(JobEntity(id = activeJobId, clientId = clientId, status = JobStatus.ACTIVE))
+        val now = System.currentTimeMillis()
+        app.container.windowDao.insertWindow(
+            JobAnalysisWindowEntity(jobId = activeJobId, startedAt = now - 1000L, reason = WindowReason.CREATED)
+        )
+
+        // Insert FAILED trigger with attemptCount = 3 (>= MAX_RETRIES = 3)
+        val triggerId = UUID.randomUUID().toString()
+        app.container.smsTriggerDao.insertTrigger(
+            SmsTriggerEntity(
+                id = triggerId,
+                clientId = clientId,
+                senderPhoneKey = "+48501234567",
+                receivedAt = now,
+                state = TriggerState.FAILED,
+                attemptCount = 3
+            )
+        )
+
+        val workManager = WorkManager.getInstance(app)
+        assertTrue(workManager.getWorkInfosForUniqueWork(SmsTriggerRecovery.getWorkName(triggerId)).get().isEmpty())
+
+        // Run recovery
+        val recovered = app.container.smsTriggerRecovery.recoverOutstandingTriggers()
+        assertEquals(0, recovered)
+
+        // Trigger is now marked DISCARDED
+        val updated = app.container.smsTriggerDao.getTriggerById(triggerId)
+        assertNotNull(updated)
+        assertEquals(TriggerState.DISCARDED, updated!!.state)
+
+        // No work enqueued
+        assertTrue(workManager.getWorkInfosForUniqueWork(SmsTriggerRecovery.getWorkName(triggerId)).get().isEmpty())
     }
 
     // =========================================================================

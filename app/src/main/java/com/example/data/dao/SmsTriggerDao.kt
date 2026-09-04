@@ -21,6 +21,9 @@ interface SmsTriggerDao {
     @Query("SELECT * FROM sms_triggers WHERE state = 'PENDING' ORDER BY receivedAt ASC")
     suspend fun getPendingTriggers(): List<SmsTriggerEntity>
 
+    @Query("SELECT * FROM sms_triggers WHERE state IN ('PENDING', 'FAILED') ORDER BY receivedAt ASC")
+    suspend fun getRecoverableTriggers(): List<SmsTriggerEntity>
+
     @Query("SELECT * FROM sms_triggers WHERE state = 'PENDING' ORDER BY receivedAt ASC")
     fun observePendingTriggers(): Flow<List<SmsTriggerEntity>>
 
