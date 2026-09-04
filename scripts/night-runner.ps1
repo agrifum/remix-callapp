@@ -400,8 +400,10 @@ foreach ($task in $sortedTasks) {
     }
 
     # Pre-task collision check
-    $remoteBranchExists = (git ls-remote --heads origin $task.branch).Trim().Length -gt 0
-    $localBranchExists = (git branch --list $task.branch).Trim().Length -gt 0
+    $remoteBranchOut = & git ls-remote --heads origin $task.branch
+    $remoteBranchExists = ($null -ne $remoteBranchOut -and "$remoteBranchOut".Trim().Length -gt 0)
+    $localBranchOut = & git branch --list $task.branch
+    $localBranchExists = ($null -ne $localBranchOut -and "$localBranchOut".Trim().Length -gt 0)
     $openPrJson = & gh pr list --head $task.branch --state open --json number 2>$null
     $openPrCount = 0
     if ($openPrJson) {
