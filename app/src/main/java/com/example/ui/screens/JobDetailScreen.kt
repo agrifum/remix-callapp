@@ -62,6 +62,7 @@ import com.example.data.repository.JobRepository
 import com.example.ui.theme.StatusGray
 import com.example.ui.theme.StatusGreen
 import com.example.ui.theme.StatusOrange
+import com.example.system.calendar.CalendarManager
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,6 +73,7 @@ fun JobDetailScreen(
     clientRepository: ClientRepository,
     onNavigateBack: () -> Unit,
     onNavigateToClient: (String) -> Unit,
+    calendarManager: CalendarManager? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -213,6 +215,44 @@ fun JobDetailScreen(
                             text = if (term.isNotBlank()) term else "Brak ustalonego terminu",
                             style = MaterialTheme.typography.bodyLarge
                         )
+
+                        if (j.calendarEventId != null) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "✓ Dodano do kalendarza Android",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        } else if (j.status == JobStatus.ACTIVE && (j.confirmedStartAt != null || j.preliminaryDateEpochDay != null)) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        val anchor = JobRepository.calculateCompletionAnchor(j)
+                                        val confirmedJob = if (j.confirmedStartAt == null && anchor != null) {
+                                            j.copy(confirmedStartAt = anchor)
+                                        } else {
+                                            j
+                                        }
+                                        var eventId: Long? = null
+                                        if (calendarManager != null) {
+                                            try {
+                                                eventId = calendarManager.createEvent(confirmedJob, client)
+                                            } catch (_: Exception) {}
+                                        }
+                                        jobRepository.updateJob(
+                                            confirmedJob.copy(
+                                                calendarEventId = eventId ?: confirmedJob.calendarEventId
+                                            )
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Potwierdź termin i dodaj do kalendarza")
+                            }
+                        }
                     }
                 }
 

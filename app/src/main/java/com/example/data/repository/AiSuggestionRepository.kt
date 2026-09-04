@@ -13,13 +13,15 @@ import org.json.JSONObject
 
 import com.example.data.entity.JobEntity
 import com.example.system.work.JobCompletionScheduler
+import com.example.system.calendar.CalendarManager
 
 class AiSuggestionRepository(
     private val database: CallUppDatabase,
     private val suggestionDao: AiSuggestionDao,
     private val clientDao: ClientDao,
     private val jobDao: JobDao,
-    private val scheduler: JobCompletionScheduler? = null
+    private val scheduler: JobCompletionScheduler? = null,
+    private val calendarManager: CalendarManager? = null
 ) {
 
     fun getPendingSuggestionsForJob(jobId: String): Flow<List<AiSuggestionEntity>> =
@@ -111,6 +113,12 @@ class AiSuggestionRepository(
         }
         if (updatedJob != null) {
             scheduler?.scheduleCompletion(updatedJob!!)
+            if (updatedJob!!.calendarEventId != null && calendarManager != null) {
+                try {
+                    val client = clientDao.getClientByIdSync(updatedJob!!.clientId)
+                    calendarManager.updateEvent(updatedJob!!.calendarEventId!!, updatedJob!!, client)
+                } catch (_: Exception) {}
+            }
         }
     }
 

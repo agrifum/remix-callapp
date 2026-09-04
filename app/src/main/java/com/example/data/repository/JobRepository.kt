@@ -13,6 +13,8 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import com.example.system.work.JobCompletionScheduler
+import com.example.system.calendar.CalendarManager
+import com.example.data.dao.ClientDao
 import java.time.ZoneId
 import java.util.UUID
 
@@ -20,7 +22,9 @@ class JobRepository(
     private val database: CallUppDatabase,
     private val jobDao: JobDao,
     private val windowDao: JobAnalysisWindowDao,
-    private val scheduler: JobCompletionScheduler? = null
+    private val scheduler: JobCompletionScheduler? = null,
+    private val calendarManager: CalendarManager? = null,
+    private val clientDao: ClientDao? = null
 ) {
 
     fun getJobsByStatus(status: JobStatus): Flow<List<JobEntity>> = jobDao.getJobsByStatus(status)
@@ -72,6 +76,12 @@ class JobRepository(
             scheduler?.scheduleCompletion(updated)
         } else {
             scheduler?.cancelCompletion(updated.id)
+        }
+        if (updated.calendarEventId != null && calendarManager != null) {
+            try {
+                val client = clientDao?.getClientByIdSync(updated.clientId)
+                calendarManager.updateEvent(updated.calendarEventId, updated, client)
+            } catch (_: Exception) {}
         }
     }
 
@@ -132,11 +142,19 @@ class JobRepository(
 
     suspend fun softDeleteJob(jobId: String) {
         val now = System.currentTimeMillis()
+        var jobToDelete: JobEntity? = null
         database.withTransaction {
+            jobToDelete = jobDao.getJobByIdSync(jobId)
             jobDao.softDeleteJob(jobId, now)
             windowDao.closeAllWindowsForJob(jobId, now)
         }
         scheduler?.cancelCompletion(jobId)
+        val eventId = jobToDelete?.calendarEventId
+        if (eventId != null && calendarManager != null) {
+            try {
+                calendarManager.deleteEvent(eventId)
+            } catch (_: Exception) {}
+        }
     }
 
     suspend fun restoreJob(jobId: String) {

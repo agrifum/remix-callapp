@@ -187,7 +187,8 @@ fun AppNavHost(
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToClient = { clientId ->
                         navController.navigate(Screen.ClientDetail.createRoute(clientId))
-                    }
+                    },
+                    calendarManager = container.calendarManager
                 )
             }
 
