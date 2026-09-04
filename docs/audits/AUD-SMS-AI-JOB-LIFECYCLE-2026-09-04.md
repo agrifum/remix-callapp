@@ -78,22 +78,24 @@ All conclusions are classified strictly into:
   - There is no query to Android's system SMS ContentProvider (`content://sms` or `Telephony.Sms`) by any worker or repository.
 
 ### 6. Global OFF behavior
-- **Status:** PASS
+- **Status:** PARTIAL / PRIVACY DEFECT
 - **Classification:** `[DOCUMENTED IMPLEMENTATION]`
-- **Locator:** `app/src/main/java/com/example/system/sms/SmsReceiver.kt:37-38`, `app/src/main/java/com/example/ai/SmsAnalysisCoordinator.kt:47-51`, `app/src/main/java/com/example/data/preferences/AppPreferences.kt:25-27`
+- **Locator:** `app/src/main/java/com/example/system/sms/SmsReceiver.kt:25-38`, `app/src/main/java/com/example/ai/SmsAnalysisCoordinator.kt:47-51`, `app/src/main/java/com/example/data/preferences/AppPreferences.kt:25-27`
 - **Findings:**
-  - `SmsReceiver.kt:37-38`: `val globalEnabled = app.container.appPreferences.smsAnalysisGlobalEnabled.first(); if (!globalEnabled) return@launch`. Trigger insertion and AI invocation are skipped.
-  - `SmsAnalysisCoordinator.kt:47-51`: Validates `globalEnabled`; if false, updates trigger state to `DISCARDED` and aborts.
-  - Client-level settings cannot override global OFF.
+  - `SmsReceiver.kt:25-30`: `SmsReceiver.onReceive` extracts and joins the full SMS body (`val fullBody = msgs.joinToString("") { it.messageBody ?: "" }`) unconditionally upon broadcast arrival, BEFORE inspecting `smsAnalysisGlobalEnabled`.
+  - At line 37-38: `val globalEnabled = app.container.appPreferences.smsAnalysisGlobalEnabled.first(); if (!globalEnabled) return@launch`. While AI extraction and Room trigger insertion are skipped when global analysis is disabled, the SMS content has already been parsed and read in memory.
+  - In `SmsAnalysisCoordinator.kt:47-51`: A redundant gate validates `globalEnabled`; if false, it marks trigger `DISCARDED` and aborts.
+  - Assessment: SP-027 specifies that when global analysis is OFF, SMS content must not be analyzed or read by the feature. While raw text is not persisted in Room and not sent to AI, the receiver reads the SMS body from the intent before checking this setting.
 
 ### 7. Client OFF behavior
-- **Status:** PASS
+- **Status:** PARTIAL / PRIVACY DEFECT
 - **Classification:** `[DOCUMENTED IMPLEMENTATION]`
-- **Locator:** `app/src/main/java/com/example/system/sms/SmsReceiver.kt:41-42`, `app/src/main/java/com/example/ai/SmsAnalysisCoordinator.kt:59-62`, `app/src/main/java/com/example/core/model/Enums.kt:18-22`
+- **Locator:** `app/src/main/java/com/example/system/sms/SmsReceiver.kt:25-42`, `app/src/main/java/com/example/ai/SmsAnalysisCoordinator.kt:59-62`, `app/src/main/java/com/example/core/model/Enums.kt:18-22`
 - **Findings:**
-  - In `SmsReceiver.kt:42`: `if (client.smsAnalysisMode == SmsAnalysisMode.DISABLED) return@launch`.
+  - `SmsReceiver.kt:25-30`: Similar to Global OFF, the full SMS message body is read into memory before checking the client record or verifying `client.smsAnalysisMode`.
+  - At line 41-42: If `client.smsAnalysisMode == SmsAnalysisMode.DISABLED`, the coroutine returns without triggering AI or persisting a trigger record.
   - In `SmsAnalysisCoordinator.kt:59-62`: Re-evaluates client setting; if `DISABLED`, marks trigger `DISCARDED` and aborts.
-  - Effective evaluation correctly matches SP-027: `DISABLED` halts processing, while `INHERIT` and `ENABLED` allow processing when global is ON.
+  - Assessment: The gate successfully prevents AI processing, trigger creation, and Room persistence, but violates the privacy expectation that disabled clients do not have their incoming SMS content parsed/read into memory.
 
 ### 8. No-ACTIVE-job behavior
 - **Status:** PASS
@@ -398,7 +400,7 @@ All conclusions are classified strictly into:
 ## PRIVACY-CRITICAL FAILURES
 
 1. **Early SMS Body Extraction in BroadcastReceiver (`SmsReceiver.kt:30`)**
-   - The full SMS body string is assembled from intent PDUs immediately upon receiving the broadcast, before verifying client registration, global preferences, or active job analysis windows.
+   - The full SMS body string is assembled from intent PDUs immediately upon receiving the broadcast, before verifying client registration, global preferences (`smsAnalysisGlobalEnabled`), or active job analysis windows. This compromises Global OFF and Client OFF privacy boundaries by reading/parsing message content into memory regardless of user/client configuration.
 2. **In-Memory Pipe Instead of Worker Provider Re-Read (`SmsReceiver.kt:67`)**
    - The receiver directly forwards the extracted SMS body string to an in-memory coroutine, bypassing the architectural boundary requiring a worker to selectively re-read the message from the system provider.
 3. **In-Flight Job Completion Data Leakage (`SmsAnalysisCoordinator.kt:153-167, 198-209`)**
@@ -435,8 +437,8 @@ All conclusions are classified strictly into:
 ## CURRENTLY SAFE BEHAVIORS
 
 1. **Zero Raw SMS Persistence:** `SmsTriggerEntity` and Room entities store only metadata; SMS text is never stored in SQLite/Room.
-2. **Global & Client OFF Gates:** `smsAnalysisGlobalEnabled == false` or `client.smsAnalysisMode == DISABLED` completely halt AI processing.
-3. **No-Active-Job Gate:** SMS from clients without active jobs routes exclusively to reengagement event detection.
+2. **AI & Storage Halting on Disabled Settings:** When `smsAnalysisGlobalEnabled == false` or `client.smsAnalysisMode == DISABLED`, AI extraction is never invoked and no trigger record is persisted in Room (though pre-reading occurs in the receiver).
+3. **No-Active-Job Gate:** SMS from clients without active jobs routes exclusively to reengagement event detection without AI processing.
 4. **Analysis Window Bounding:** SMS received before job start or between closed/reopen windows is excluded from analysis.
 5. **Non-Destructive AI Safeguards:** AI never overwrites existing addresses or terms; it creates non-destructive `AiSuggestionEntity` records.
 6. **Input Minimization:** Extraneous entities (notes, call logs, contacts) are completely excluded from AI payloads.
