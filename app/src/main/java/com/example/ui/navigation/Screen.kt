@@ -1,6 +1,8 @@
 package com.example.ui.navigation
 
-sealed class Screen(val route: String, val title: String) {
+import androidx.navigation3.runtime.NavKey
+
+sealed class Screen(val route: String, val title: String) : NavKey {
     // 3 primary bottom navigation tabs: Połączenia, Zlecenia, Zadania
     object Calls : Screen("calls", "Połączenia")
     object Jobs : Screen("jobs", "Zlecenia")
@@ -8,14 +10,23 @@ sealed class Screen(val route: String, val title: String) {
 
     // Production secondary screens
     object NewJob : Screen("new_job", "Nowe zlecenie")
-    object ClientDetail : Screen("client_detail/{clientId}", "Klient") {
-        fun createRoute(clientId: String) = "client_detail/$clientId"
+    data class ClientDetail(val clientId: String) : Screen("client_detail/$clientId", "Klient") {
+        companion object {
+            const val route = "client_detail/{clientId}"
+            fun createRoute(clientId: String) = "client_detail/$clientId"
+        }
     }
-    object NumberDetail : Screen("number_detail/{phoneKey}", "Szczegóły numeru") {
-        fun createRoute(phoneKey: String) = "number_detail/$phoneKey"
+    data class NumberDetail(val phoneKey: String) : Screen("number_detail/$phoneKey", "Szczegóły numeru") {
+        companion object {
+            const val route = "number_detail/{phoneKey}"
+            fun createRoute(phoneKey: String) = "number_detail/$phoneKey"
+        }
     }
-    object JobDetail : Screen("job_detail/{jobId}", "Szczegóły zlecenia") {
-        fun createRoute(jobId: String) = "job_detail/$jobId"
+    data class JobDetail(val jobId: String) : Screen("job_detail/$jobId", "Szczegóły zlecenia") {
+        companion object {
+            const val route = "job_detail/{jobId}"
+            fun createRoute(jobId: String) = "job_detail/$jobId"
+        }
     }
     object Settings : Screen("settings", "Ustawienia")
     object ServicesSettings : Screen("services_settings", "Cennik i Usługi")
