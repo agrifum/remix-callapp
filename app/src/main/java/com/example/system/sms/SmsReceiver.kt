@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import com.example.CallUppApplication
+import com.example.core.model.ReengagementSource
 import com.example.core.model.SmsAnalysisMode
 import com.example.core.model.TriggerState
 import com.example.core.phone.PhoneNumberNormalizer
@@ -15,56 +16,82 @@ import java.util.UUID
 
 /**
  * SmsReceiver: Listens for SMS_RECEIVED.
- * Raw SMS body is NEVER stored in the database! It only triggers analysis if the client has an active job window.
+ * Acts solely as a lightweight metadata-only eligibility and trigger layer.
+ *
+ * Strict Privacy Contract:
+ * - When Global SMS Analysis is OFF, exits immediately before parsing PDUs or constructing SmsMessage objects.
+ * - When Client SMS Analysis is DISABLED, exits immediately without creating triggers or work.
+ * - Raw SMS body is NEVER read, joined, parsed, or persisted by this receiver.
  */
 class SmsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
-        val msgs = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-        if (msgs.isNullOrEmpty()) return
-
-        val originatingAddress = msgs[0].originatingAddress ?: return
-        val phoneKey = PhoneNumberNormalizer.normalizeKey(originatingAddress)
-        val fullBody = msgs.joinToString("") { it.messageBody ?: "" }
-        val timestamp = msgs[0].timestampMillis
-
         val app = context.applicationContext as? CallUppApplication ?: return
+        val pendingResult = goAsync()
 
         app.container.appScope.launch {
-            // 1. Check global preference
-            val globalEnabled = app.container.appPreferences.smsAnalysisGlobalEnabled.first()
-            if (!globalEnabled) return@launch
+            try {
+                // 1. Parse SMS metadata ONLY (originating address and timestamp). Do NOT read raw SMS payload.
+                val msgs = Telephony.Sms.Intents.getMessagesFromIntent(intent)
+                if (msgs.isNullOrEmpty()) return@launch
 
-            // 2. Check if client exists
-            val client = app.container.clientRepository.getClientByPhoneKeySync(phoneKey) ?: return@launch
-            if (client.smsAnalysisMode == SmsAnalysisMode.DISABLED) return@launch
+                // Extract metadata ONLY (originating address and timestamp). Do NOT read raw SMS payload.
+                val originatingAddress = msgs[0].originatingAddress ?: return@launch
+                val phoneKey = PhoneNumberNormalizer.normalizeKey(originatingAddress)
+                if (phoneKey.isBlank()) return@launch
+                val timestamp = msgs[0].timestampMillis
 
-            // 3. Client must have active jobs with open analysis window
-            val activeJobs = app.container.jobRepository.getActiveJobsForClientSync(client.id)
-            if (activeJobs.isEmpty()) {
-                // Check if reengagement applies (no active jobs, but has closed/completed jobs)
-                app.container.reengagementRepository.checkAndCreateReengagementEvent(
+                // 2. Resolve client WITHOUT reading SMS body
+                val client = app.container.clientRepository.getClientByPhoneKeySync(phoneKey) ?: return@launch
+
+                // 3. Inspect ACTIVE jobs. If no active jobs, evaluate reengagement unconditionally (no AI needed)
+                val activeJobs = app.container.jobRepository.getActiveJobsForClientSync(client.id)
+                if (activeJobs.isEmpty()) {
+                    // Reengagement does not require AI analysis or SMS body read
+                    app.container.reengagementRepository.checkAndCreateReengagementEvent(
+                        clientId = client.id,
+                        source = ReengagementSource.INCOMING_SMS
+                    )
+                    return@launch
+                }
+
+                // 4. ACTIVE jobs exist: AI analysis settings gate trigger & worker creation
+                val globalEnabled = app.container.appPreferences.smsAnalysisGlobalEnabled.first()
+                if (!globalEnabled) return@launch
+
+                if (client.smsAnalysisMode == SmsAnalysisMode.DISABLED) return@launch
+
+                // 5. Client must have active jobs with open analysis window covering received timestamp
+                var hasEligibleWindow = false
+                for (job in activeJobs) {
+                    val window = app.container.windowDao.getOpenWindowForJob(job.id)
+                    if (window != null && window.endedAt == null && timestamp >= window.startedAt) {
+                        hasEligibleWindow = true
+                        break
+                    }
+                }
+                if (!hasEligibleWindow) return@launch
+
+                // 5. Create metadata-only trigger record (storing metadata only, NOT raw SMS text in Room)
+                val triggerId = UUID.randomUUID().toString()
+                val trigger = SmsTriggerEntity(
+                    id = triggerId,
                     clientId = client.id,
-                    source = com.example.core.model.ReengagementSource.INCOMING_SMS
+                    senderPhoneKey = phoneKey,
+                    receivedAt = timestamp,
+                    state = TriggerState.PENDING
                 )
-                return@launch
+                app.container.smsTriggerDao.insertTrigger(trigger)
+
+                // 6. Delegate analysis to WorkManager via SmsTriggerRecovery helper
+                app.container.smsTriggerRecovery.enqueueOrDiscard(trigger)
+            } catch (_: Exception) {
+                // Fail-safe non-blocking execution
+            } finally {
+                pendingResult?.finish()
             }
-
-            // 4. Create trigger record (storing metadata only, NOT the raw SMS text in Room)
-            val triggerId = UUID.randomUUID().toString()
-            val trigger = SmsTriggerEntity(
-                id = triggerId,
-                clientId = client.id,
-                senderPhoneKey = phoneKey,
-                receivedAt = timestamp,
-                state = TriggerState.PENDING
-            )
-            app.container.smsTriggerDao.insertTrigger(trigger)
-
-            // 5. Run SMS extraction in-memory safely
-            app.container.smsAnalysisCoordinator.processSmsTrigger(triggerId, fullBody)
         }
     }
 }
