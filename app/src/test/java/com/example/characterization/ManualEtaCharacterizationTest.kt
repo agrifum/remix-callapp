@@ -20,7 +20,7 @@ class ManualEtaCharacterizationTest {
     @Test
     fun manualEta_calculatesTargetArrivalAndTravelTimeDelta() {
         // Given a current reference time
-        val zone = ZoneId.of("Europe/Warsaw")
+        val zone = ZoneId.systemDefault()
         val fixedNow = ZonedDateTime.of(2026, 9, 4, 14, 0, 0, 0, zone)
         val currentMillis = fixedNow.toInstant().toEpochMilli()
 
@@ -85,7 +85,7 @@ class ManualEtaCharacterizationTest {
 
     @Test
     fun manualEta_rollsOverToNextDayIfTargetTimeIsEarlierThanCurrentTime() {
-        val zone = ZoneId.of("Europe/Warsaw")
+        val zone = ZoneId.systemDefault()
         val fixedNow = ZonedDateTime.of(2026, 9, 4, 23, 45, 0, 0, zone)
 
         // User enters 00:30 (past midnight)
