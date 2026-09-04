@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -84,6 +85,11 @@ fun JobDetailScreen(
     var showEditNotesDialog by remember { mutableStateOf(false) }
     var notesInput by remember { mutableStateOf("") }
     var hasDuplicateConflict by remember { mutableStateOf(false) }
+
+    var showEtaDialog by remember { mutableStateOf(false) }
+    var etaHour by remember { mutableStateOf("") }
+    var etaMinute by remember { mutableStateOf("") }
+    var etaError by remember { mutableStateOf<String?>(null) }
 
     androidx.compose.runtime.LaunchedEffect(job) {
         val j = job
@@ -338,6 +344,51 @@ fun JobDetailScreen(
                                 Text("Nawiguj do adresu (Google Maps)")
                             }
                         }
+
+                        // ETA Section (§43-45)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        if (j.predictedArrivalAt != null) {
+                            val now = System.currentTimeMillis()
+                            val diffMinutes = ((j.predictedArrivalAt - now) / (60 * 1000)).coerceAtLeast(0)
+                            val arrivalTimeStr = DateTimeFormatters.formatTime(j.predictedArrivalAt)
+                            val sourceLabel = if (j.etaSource == com.example.core.model.EtaSource.MANUAL) "ręcznie" else "z nawigacji"
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = "Przewidywany przyjazd: $arrivalTimeStr (za ${diffMinutes} min)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                    Text(
+                                        text = "Źródło: $sourceLabel",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                val now = java.time.LocalTime.now()
+                                etaHour = now.hour.toString().padStart(2, '0')
+                                etaMinute = now.minute.toString().padStart(2, '0')
+                                etaError = null
+                                showEtaDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (j.predictedArrivalAt != null) "Zmień czas dojazdu (ręcznie)" else "Ustaw czas dojazdu (ręcznie)")
+                        }
                     }
                 }
 
@@ -497,6 +548,85 @@ fun JobDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showEditNotesDialog = false }) {
+                    Text("Anuluj")
+                }
+            }
+        )
+    }
+
+    if (showEtaDialog && job != null) {
+        AlertDialog(
+            onDismissRequest = { showEtaDialog = false },
+            title = { Text("Przewidywana godzina przyjazdu") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Podaj planowaną godzinę przyjazdu na miejsce zlecenia (HH:MM):",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = etaHour,
+                            onValueChange = { if (it.length <= 2 && it.all { c -> c.isDigit() }) etaHour = it },
+                            label = { Text("GG") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        Text(":", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = etaMinute,
+                            onValueChange = { if (it.length <= 2 && it.all { c -> c.isDigit() }) etaMinute = it },
+                            label = { Text("MM") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+                    if (etaError != null) {
+                        Text(
+                            text = etaError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val h = etaHour.toIntOrNull()
+                        val m = etaMinute.toIntOrNull()
+                        if (h == null || h !in 0..23 || m == null || m !in 0..59) {
+                            etaError = "Nieprawidłowa godzina (00-23) lub minuta (00-59)"
+                            return@Button
+                        }
+                        scope.launch {
+                            val zone = java.time.ZoneId.systemDefault()
+                            val now = java.time.ZonedDateTime.now(zone)
+                            var target = now.with(java.time.LocalTime.of(h, m, 0, 0))
+                            if (target.isBefore(now)) {
+                                target = target.plusDays(1)
+                            }
+                            val arrivalEpochMillis = target.toInstant().toEpochMilli()
+                            jobRepository.updateJob(
+                                job!!.copy(
+                                    predictedArrivalAt = arrivalEpochMillis,
+                                    etaSource = com.example.core.model.EtaSource.MANUAL,
+                                    etaUpdatedAt = System.currentTimeMillis()
+                                )
+                            )
+                            showEtaDialog = false
+                        }
+                    }
+                ) {
+                    Text("Zapisz")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEtaDialog = false }) {
                     Text("Anuluj")
                 }
             }
