@@ -8,9 +8,11 @@ import androidx.work.WorkManager
 import com.example.core.di.AppContainer
 import com.example.system.work.JobStatusReconciler
 import com.example.system.work.TrashCleanupWorker
+import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
+@HiltAndroidApp
 class CallUppApplication : Application() {
 
     lateinit var container: AppContainer
