@@ -6,6 +6,7 @@ Brak finalnych promptów implementacyjnych. Szablony nie są rekordami READY.
 |---|---|---|---|---|---|---|---|
 | INF-01-AUTOMATION-FOUNDATION-r1 | INF-01 | EXECUTED | 2026-09-04 | process/infrastructure only; no product R-ID | T-INF-01-AUTOMATION | none | Antigravity AI Pro |
 | INF-01R-AUTOMATION-GATE-REPAIR-r1 | INF-01R | EXECUTED | 2026-09-04 | infrastructure repair; no product R-ID | T-INF-01-06,T-INF-01-07,T-INF-01-08 | none | Antigravity AI Pro |
+| INF-01B-NIGHT-RUNNER-r1 | INF-01B | EXECUTED | 2026-09-04 | process / automation infrastructure only; no product R-ID | T-INF-01B-01 through T-INF-01B-08 | none | Antigravity AI Pro |
 
 Statusy: DRAFT, READY, EXECUTED, SUPERSEDED, BLOCKED.
 
@@ -24,4 +25,11 @@ Przejścia: DRAFT→READY po researchu, spójnym CP i jednym PASS; DRAFT/READY�
 - PT: 7c095129a7f2d2d941fb6d1f29738306b93e3891
 - BASE: 24034bf0441fca6788093cab0eed01d274421728
 - REVIEW: PRV-INF-01R-r1
+- EXECUTION AUTHORIZATION: explicit user authorization, 2026-09-04
+
+### INF-01B-NIGHT-RUNNER-r1 metadata
+- CP: CP-INF-01B-night-runner-r1
+- PT: 7c095129a7f2d2d941fb6d1f29738306b93e3891
+- BASE: 76b2315d38f280792f5fe15c19af643dc9b097c7
+- REVIEW: PRV-INF-01B-r1
 - EXECUTION AUTHORIZATION: explicit user authorization, 2026-09-04
