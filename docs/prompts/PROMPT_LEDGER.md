@@ -13,6 +13,7 @@ Brak finalnych promptów implementacyjnych. Szablony nie są rekordami READY.
 | RSCH-CALENDAR-CONSISTENCY-r2 | RSCH-CALENDAR | EXECUTED | 2026-09-04 | SP-016, SP-034, SP-046, SP-051, SP-056, SP-057, SP-058, SP-066 | official Android documentation (Calendar Provider, ContentResolver, WorkManager) | RSCH-CALENDAR-CONSISTENCY-r1 | Antigravity AI Pro / CallUpp Night Runner |
 | RSCH-TELEPHONY-OUTGOING-r2 | RSCH-TELEPHONY | EXECUTED | 2026-09-04 | SP-001, SP-008, SP-049..SP-051, SP-053, SP-057, SP-058, SP-061, SP-062, SP-065, SP-066 | official Android documentation (Telecom, CallScreeningService, TelephonyManager) | RSCH-TELEPHONY-OUTGOING-r1 | Antigravity AI Pro / CallUpp Night Runner |
 | AUD-SMS-JOB-LIFECYCLE-r2 | AUD-SMS-JOB | EXECUTED | 2026-09-04 | SP-017..SP-021, SP-025..SP-040, SP-047, SP-048, SP-056..SP-059, SP-064, SP-065, SP-066 | repository code (SMS, AI, Job, Room, WorkManager, Reengagement) | AUD-SMS-JOB-LIFECYCLE-r1 | Antigravity AI Pro / CallUpp Night Runner |
+| IMP-CORE-STABILITY-01-rev1 | CORE-STABILITY-01 | EXECUTED | 2026-09-04 | core stability repair; no product R-ID | AUD-BASE-2026-09-04, AUD-SMS-AI-JOB-LIFECYCLE-2026-09-04, CallDraftRepository, ReengagementRepository | none | Antigravity AI Pro |
 
 Statusy: DRAFT, READY, EXECUTED, SUPERSEDED, BLOCKED.
 
@@ -87,3 +88,12 @@ Przejścia: DRAFT→READY po researchu, spójnym CP i jednym PASS; DRAFT/READY�
 - REVIEW: PRV-AUD-SMS-JOB-r2
 - EXECUTION AUTHORIZATION: explicit user/Control Plane authorization in Night Pack callupp-mega-20260904-acf2cf1f, 2026-09-04
 - SUPERSEDES: AUD-SMS-JOB-LIFECYCLE-r1 from blocked pack callupp-mega-20260904-a2656318 (old r1 prompt not executed)
+
+### IMP-CORE-STABILITY-01-rev1 metadata
+- CP: none (direct prompt instruction)
+- PT: none
+- BASE: 60e05e3e1bc8a2bb29d2b191c2abac2ae1f56aa2
+- END: cfda6aeff98ed1457b1dbab673d39ec89f0333b3
+- REVIEW: none
+- EXECUTION AUTHORIZATION: explicit user authorization, 2026-09-04
+- HANDOFF/EVIDENCE: commit cfda6aeff98ed1457b1dbab673d39ec89f0333b3; compileDebugKotlin PASS; testDebugUnitTest 86/86 PASS; harness/build-log.md entry 2026-09-04
