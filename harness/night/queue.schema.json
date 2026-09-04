@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CallUppNightPackQueue",
+  "description": "Validation schema for CallUpp Night Runner queue manifests.",
+  "type": "object",
+  "required": [
+    "version",
+    "pack_id",
+    "base_main_sha",
+    "created_at",
+    "tasks"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema revision; must be 1."
+    },
+    "pack_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier of the night pack."
+    },
+    "base_main_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Exact 40-character lowercase hexadecimal SHA of origin/main to which all tasks are pinned."
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ISO 8601 creation timestamp."
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "description": "Ordered sequence of independent night-compatible tasks (1 to 6).",
+      "items": {
+        "type": "object",
+        "required": [
+          "order",
+          "task_id",
+          "phase",
+          "prompt_id",
+          "review_id",
+          "review_status",
+          "authorization",
+          "night_compatible",
+          "independent",
+          "branch",
+          "prompt_file",
+          "timeout_minutes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "order": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1-based execution order index."
+          },
+          "task_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Identifier for the task, used in worktree path naming."
+          },
+          "phase": {
+            "type": "string",
+            "minLength": 1,
+            "description": "CallUpp phase ID."
+          },
+          "prompt_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Prompt ID registered in PROMPT_LEDGER."
+          },
+          "review_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Review record ID registered in PROMPT_REVIEW."
+          },
+          "review_status": {
+            "type": "string",
+            "const": "PASS",
+            "description": "Must be PASS."
+          },
+          "authorization": {
+            "type": "string",
+            "const": "READY",
+            "description": "Must be READY."
+          },
+          "night_compatible": {
+            "type": "boolean",
+            "const": true,
+            "description": "Must be true."
+          },
+          "independent": {
+            "type": "boolean",
+            "const": true,
+            "description": "Must be true."
+          },
+          "branch": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Git branch name for this task."
+          },
+          "prompt_file": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?!\\\\)(?!.*\\.\\.)(?!^[a-zA-Z]:).+$",
+            "description": "Relative filename or path within the pack directory. Traversal (..) and absolute paths are forbidden."
+          },
+          "timeout_minutes": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 180,
+            "description": "Execution timeout in minutes (10 to 180)."
+          }
+        }
+      }
+    }
+  }
+}
