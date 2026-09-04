@@ -28,6 +28,7 @@ Brak nowych decyzji aplikacyjnych podjętych w ramach korekty środowiska.
 
 | ID | TOPIC | STATUS | DECISION | SUPERSEDES | SUPERSEDED_BY | SOURCE | CONFIDENCE |
 |---|---|---|---|---|---|---|---|
+| D-PROC-001 | Automation execution model | ACTIVE | CallUpp uses the closed ChatGPT project as the control plane, Antigravity as the primary bounded executor, GitHub Actions as the deterministic CI gate, and additional agents such as Jules only selectively. Executors operate one approved phase at a time and do not autonomously begin the next phase. | none | — | explicit user approval in the CallUpp project on 2026-09-04 | explicit user decision |
 
 Wypełnia projekt na podstawie rzeczywistych decyzji i ich lokalizatorów. Dopuszczalne statusy ACTIVE / SUPERSEDED / REJECTED. Nie traktować dawnego oznaczenia ACTIVE nadanego przez zewnętrznego opiekuna jako dodatkowej akceptacji użytkownika. Wycofany rejestr jest zachowany w archiwum, bez prawa wykonania.
 

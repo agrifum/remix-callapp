@@ -24,6 +24,11 @@
     <!-- Future network permission for AI adapter -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Technical manifest compatibility metadata -->
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
+
     <application
         android:name=".CallUppApplication"
         android:allowBackup="true"
