@@ -15,6 +15,7 @@ Brak finalnych promptów implementacyjnych. Szablony nie są rekordami READY.
 | AUD-SMS-JOB-LIFECYCLE-r2 | AUD-SMS-JOB | EXECUTED | 2026-09-04 | SP-017..SP-021, SP-025..SP-040, SP-047, SP-048, SP-056..SP-059, SP-064, SP-065, SP-066 | repository code (SMS, AI, Job, Room, WorkManager, Reengagement) | AUD-SMS-JOB-LIFECYCLE-r1 | Antigravity AI Pro / CallUpp Night Runner |
 | IMP-CORE-STABILITY-01-rev1 | CORE-STABILITY-01 | EXECUTED | 2026-09-04 | core stability repair; no product R-ID | AUD-BASE-2026-09-04, AUD-SMS-AI-JOB-LIFECYCLE-2026-09-04, CallDraftRepository, ReengagementRepository | none | Antigravity AI Pro |
 | IMP-MEGA-RUN-02 | MEGA-REPAIR-02 | EXECUTED | 2026-09-04 | SP-004..007, SP-013..021, SP-041..046, SP-066 | MASTER_SPEC.md, AUD-BASE-2026-09-04, AUD-SMS-AI-JOB-LIFECYCLE-2026-09-04 | none | Antigravity AI Pro |
+| IMP-MEGA-RUN-02R-r1 | MEGA-RUN-02R | EXECUTED | 2026-09-04 | TRACEABILITY SP-001..SP-068 1:1 audit, CI repair, static gap check | docs/core/TRACEABILITY.md, docs/core/MASTER_SPEC.md, .github/workflows/verify.yml, harness/build-log.md | none | Antigravity AI Pro |
 
 Statusy: DRAFT, READY, EXECUTED, SUPERSEDED, BLOCKED.
 
@@ -107,3 +108,11 @@ Przejścia: DRAFT→READY po researchu, spójnym CP i jednym PASS; DRAFT/READY�
 - REVIEW: none
 - EXECUTION AUTHORIZATION: explicit user authorization (MEGA AUTONOMOUS REPAIR RUN 02), 2026-09-04
 - HANDOFF/EVIDENCE: commits 50cbe6d, f553405, f9307f9, 7d453e2, f3547ed, 1a5621d; compileDebugKotlin PASS; testDebugUnitTest PASS; lintDebug PASS; docs/audits/AUD-V1-POST-MEGA-RUN-02.md
+### IMP-MEGA-RUN-02R-r1 metadata
+- CP: CP-MEGA-RUN-02R-r1
+- PT: none
+- BASE: 61c2111edfe89fbb9576138cad0eb7ed1ceabd5d
+- END: repair/mega-run-02r
+- REVIEW: PRV-MEGA-RUN-02R-r1 (PASS)
+- EXECUTION AUTHORIZATION: explicit user authorization (CALLUPP — MEGA RUN 02R FINAL AUDIT LOCK), 2026-09-04
+- HANDOFF/EVIDENCE: harness/build-log.md entry 2026-09-04; docs/audits/AUD-V1-POST-MEGA-RUN-02R.md (FINAL AUDIT LOCK: 60 PASS_STATIC, 4 PARTIAL, 1 FAIL, 3 REQUIRED/RESEARCH); local compileDebugKotlin PASS, testDebugUnitTest PASS, lintDebug PASS, git diff --check PASS; GitHub Actions CI PASS (Run 33920265236)
