@@ -16,6 +16,11 @@ class JobStatusReconciler(
     workerParams: WorkerParameters
 ) : CoroutineWorker(appContext, workerParams) {
 
+    companion object {
+        const val UNIQUE_PERIODIC_WORK_NAME = "CallUppJobStatusReconciler"
+        const val UNIQUE_STARTUP_WORK_NAME = "CallUppJobStatusReconcilerStartup"
+    }
+
     override suspend fun doWork(): Result {
         val app = applicationContext as? CallUppApplication ?: return Result.failure()
         val now = System.currentTimeMillis()
@@ -24,9 +29,16 @@ class JobStatusReconciler(
         return try {
             val activeJobs = app.container.jobRepository.getActiveJobsSync()
             for (job in activeJobs) {
-                val anchor = app.container.jobRepository.calculateCompletionAnchor(job)
-                if (anchor != null && (now - anchor) >= dayInMillis) {
+                val anchor = app.container.jobRepository.calculateCompletionAnchor(job) ?: continue
+                // Section 19: Stale past term on reopened job must NOT trigger auto-completion
+                if (job.reopenedAt != null && anchor <= job.reopenedAt) {
+                    continue
+                }
+                if (now >= anchor + dayInMillis) {
                     app.container.jobRepository.completeJob(job.id)
+                } else {
+                    // Reconciliation repair: ensure per-job WorkManager worker is enqueued
+                    app.container.jobCompletionScheduler.scheduleCompletion(job)
                 }
             }
             Result.success()

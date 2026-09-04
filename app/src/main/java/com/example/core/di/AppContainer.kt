@@ -49,7 +49,9 @@ class AppContainer(val context: Context) {
     val noteRepository = NoteRepository(noteDao)
     val taskRepository = TaskRepository(taskDao)
     val serviceRepository = ServiceRepository(serviceDao)
-    val jobRepository = JobRepository(database, jobDao, windowDao)
+    val jobCompletionScheduler: com.example.system.work.JobCompletionScheduler =
+        com.example.system.work.WorkManagerJobCompletionScheduler(context)
+    val jobRepository = JobRepository(database, jobDao, windowDao, jobCompletionScheduler)
     val callDraftRepository = CallDraftRepository(
         database = database,
         callDraftDao = callDraftDao,
@@ -64,7 +66,8 @@ class AppContainer(val context: Context) {
         database = database,
         suggestionDao = aiSuggestionDao,
         clientDao = clientDao,
-        jobDao = jobDao
+        jobDao = jobDao,
+        scheduler = jobCompletionScheduler
     )
     val reengagementRepository = ReengagementRepository(
         database = database,

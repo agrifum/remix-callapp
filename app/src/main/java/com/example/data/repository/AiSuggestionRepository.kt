@@ -11,11 +11,15 @@ import com.example.data.entity.AiSuggestionEntity
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONObject
 
+import com.example.data.entity.JobEntity
+import com.example.system.work.JobCompletionScheduler
+
 class AiSuggestionRepository(
     private val database: CallUppDatabase,
     private val suggestionDao: AiSuggestionDao,
     private val clientDao: ClientDao,
-    private val jobDao: JobDao
+    private val jobDao: JobDao,
+    private val scheduler: JobCompletionScheduler? = null
 ) {
 
     fun getPendingSuggestionsForJob(jobId: String): Flow<List<AiSuggestionEntity>> =
@@ -91,18 +95,22 @@ class AiSuggestionRepository(
         val dateEpochDay = if (json.has("dateEpochDay")) json.optLong("dateEpochDay") else null
         val timeMinute = if (json.has("timeMinute")) json.optInt("timeMinute") else null
 
+        var updatedJob: JobEntity? = null
         database.withTransaction {
             val job = jobDao.getJobByIdSync(jobId)
             if (job != null) {
-                jobDao.updateJob(
-                    job.copy(
-                        preliminaryDateEpochDay = dateEpochDay ?: job.preliminaryDateEpochDay,
-                        preliminaryTimeMinute = timeMinute ?: job.preliminaryTimeMinute,
-                        updatedAt = System.currentTimeMillis()
-                    )
+                val updated = job.copy(
+                    preliminaryDateEpochDay = dateEpochDay ?: job.preliminaryDateEpochDay,
+                    preliminaryTimeMinute = timeMinute ?: job.preliminaryTimeMinute,
+                    updatedAt = System.currentTimeMillis()
                 )
+                jobDao.updateJob(updated)
+                updatedJob = updated
             }
             suggestionDao.resolveSuggestion(suggestionId, SuggestionStatus.ACCEPTED)
+        }
+        if (updatedJob != null) {
+            scheduler?.scheduleCompletion(updatedJob!!)
         }
     }
 

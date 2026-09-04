@@ -12,13 +12,15 @@ import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import com.example.system.work.JobCompletionScheduler
 import java.time.ZoneId
 import java.util.UUID
 
 class JobRepository(
     private val database: CallUppDatabase,
     private val jobDao: JobDao,
-    private val windowDao: JobAnalysisWindowDao
+    private val windowDao: JobAnalysisWindowDao,
+    private val scheduler: JobCompletionScheduler? = null
 ) {
 
     fun getJobsByStatus(status: JobStatus): Flow<List<JobEntity>> = jobDao.getJobsByStatus(status)
@@ -59,11 +61,18 @@ class JobRepository(
                 windowDao.insertWindow(window)
             }
         }
+        scheduler?.scheduleCompletion(finalJob)
         return jobId
     }
 
     suspend fun updateJob(job: JobEntity) {
-        jobDao.updateJob(job.copy(updatedAt = System.currentTimeMillis()))
+        val updated = job.copy(updatedAt = System.currentTimeMillis())
+        jobDao.updateJob(updated)
+        if (updated.status == JobStatus.ACTIVE && updated.deletedAt == null) {
+            scheduler?.scheduleCompletion(updated)
+        } else {
+            scheduler?.cancelCompletion(updated.id)
+        }
     }
 
     suspend fun completeJob(jobId: String) {
@@ -77,6 +86,7 @@ class JobRepository(
             )
             windowDao.closeAllWindowsForJob(jobId, now)
         }
+        scheduler?.cancelCompletion(jobId)
     }
 
     suspend fun closeJob(jobId: String) {
@@ -90,10 +100,12 @@ class JobRepository(
             )
             windowDao.closeAllWindowsForJob(jobId, now)
         }
+        scheduler?.cancelCompletion(jobId)
     }
 
     suspend fun reopenJob(jobId: String) {
         val now = System.currentTimeMillis()
+        var reopenedJob: JobEntity? = null
         database.withTransaction {
             jobDao.updateJobStatus(
                 id = jobId,
@@ -107,6 +119,10 @@ class JobRepository(
                 reason = WindowReason.REOPENED
             )
             windowDao.insertWindow(window)
+            reopenedJob = jobDao.getJobByIdSync(jobId)
+        }
+        if (reopenedJob != null) {
+            scheduler?.scheduleCompletion(reopenedJob!!)
         }
     }
 
@@ -120,9 +136,11 @@ class JobRepository(
             jobDao.softDeleteJob(jobId, now)
             windowDao.closeAllWindowsForJob(jobId, now)
         }
+        scheduler?.cancelCompletion(jobId)
     }
 
     suspend fun restoreJob(jobId: String) {
+        var restoredJob: JobEntity? = null
         database.withTransaction {
             jobDao.restoreJob(jobId)
             val job = jobDao.getJobByIdSync(jobId)
@@ -135,11 +153,16 @@ class JobRepository(
                     )
                 )
             }
+            restoredJob = job
+        }
+        if (restoredJob != null && restoredJob!!.status == JobStatus.ACTIVE) {
+            scheduler?.scheduleCompletion(restoredJob!!)
         }
     }
 
     suspend fun deletePermanently(jobId: String) {
         jobDao.deleteJobPermanently(jobId)
+        scheduler?.cancelCompletion(jobId)
     }
 
     fun getDeletedJobs(): Flow<List<JobEntity>> = jobDao.getDeletedJobs()
@@ -159,25 +182,29 @@ class JobRepository(
         }
     }
 
-    /**
-     * Calculates anchor epoch millis for +24h auto-completion:
-     * 1. confirmedStartAt
-     * 2. preliminary date + time
-     * 3. date only -> end of selected day (23:59:59.999)
-     * 4. no date -> null
-     */
-    fun calculateCompletionAnchor(job: JobEntity): Long? {
-        if (job.confirmedStartAt != null) {
-            return job.confirmedStartAt
+    fun calculateCompletionAnchor(job: JobEntity): Long? = Companion.calculateCompletionAnchor(job)
+
+    companion object {
+        /**
+         * Calculates anchor epoch millis for +24h auto-completion:
+         * 1. confirmedStartAt
+         * 2. preliminary date + time
+         * 3. date only -> end of selected day (23:59:59)
+         * 4. no date -> null
+         */
+        fun calculateCompletionAnchor(job: JobEntity): Long? {
+            if (job.confirmedStartAt != null) {
+                return job.confirmedStartAt
+            }
+            val dateEpochDay = job.preliminaryDateEpochDay ?: return null
+            val date = LocalDate.ofEpochDay(dateEpochDay)
+            val timeMinute = job.preliminaryTimeMinute
+            val dateTime = if (timeMinute != null) {
+                LocalDateTime.of(date, LocalTime.of(timeMinute / 60, timeMinute % 60))
+            } else {
+                LocalDateTime.of(date, LocalTime.of(23, 59, 59))
+            }
+            return dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         }
-        val dateEpochDay = job.preliminaryDateEpochDay ?: return null
-        val date = LocalDate.ofEpochDay(dateEpochDay)
-        val timeMinute = job.preliminaryTimeMinute
-        val dateTime = if (timeMinute != null) {
-            LocalDateTime.of(date, LocalTime.of(timeMinute / 60, timeMinute % 60))
-        } else {
-            LocalDateTime.of(date, LocalTime.of(23, 59, 59))
-        }
-        return dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
     }
 }
