@@ -4,7 +4,7 @@ Brak finalnych promptów implementacyjnych. Szablony nie są rekordami READY.
 
 | PROMPT ID | PHASE | STATUS | CREATED | SOURCE REQUIREMENTS | TECHNICAL SOURCES | SUPERSEDES | EXECUTION TARGET |
 |---|---|---|---|---|---|---|---|
-| INF-01-AUTOMATION-FOUNDATION-r1 | INF-01 | READY | 2026-09-04 | process/infrastructure only; no product R-ID | T-INF-01-AUTOMATION | none | Antigravity AI Pro |
+| INF-01-AUTOMATION-FOUNDATION-r1 | INF-01 | EXECUTED | 2026-09-04 | process/infrastructure only; no product R-ID | T-INF-01-AUTOMATION | none | Antigravity AI Pro |
 
 Statusy: DRAFT, READY, EXECUTED, SUPERSEDED, BLOCKED.
 
