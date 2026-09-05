@@ -56,7 +56,7 @@ The full repository verification suite (`powershell -ExecutionPolicy Bypass -Fil
 ## 3. Canonical 68-Section Compliance Audit Table (SP-001 – SP-068)
 
 Status vocabulary strictly adheres to:
-`PASS`, `RUNTIME_PENDING`.
+`PASS`, `INCOMPLETE`, `RUNTIME_PENDING`.
 
 | SP ID | MASTER_SPEC section (§) & TRACEABILITY title | status | evidence locator | test/evidence level | remaining gap | next-category |
 |---|---|---|---|---|---|---|
@@ -124,7 +124,7 @@ Status vocabulary strictly adheres to:
 | **SP-062** | Focus i klawiatura overlay (MASTER_SPEC §62) | RUNTIME_PENDING | app/src/main/java/com/example/system/overlay/CallOverlayService.kt, app/src/main/res/layout/call_overlay.xml | Code inspection & layout architecture PASS; hardware acceptance pending | Wymaga finalnej weryfikacji na fizycznym urządzeniu Android (dynamiczne przełączanie FLAG_NOT_FOCUSABLE, interakcja z klawiaturą IME i focus podczas rozmowy). | PHYSICAL_DEVICE |
 | **SP-063** | Package structure (MASTER_SPEC §63) | PASS | app/src/main/java/com/example/core/, app/src/main/java/com/example/data/, app/src/main/java/com/example/system/, app/src/main/java/com/example/ui/, app/src/main/java/com/example/ai/ | Code structure inspection | Brak luki statycznej. | NONE |
 | **SP-064** | Interfejs AI jako wymienna warstwa (MASTER_SPEC §64) | PASS | app/src/main/java/com/example/ai/SmsExtractionEngine.kt, app/src/main/java/com/example/ai/FakeSmsExtractionEngine.kt, app/src/main/java/com/example/ai/FirebaseSmsExtractionEngine.kt, app/src/test/java/com/example/characterization/FirebaseSmsExtractionEngineTest.kt | Code inspection, Robolectric unit tests PASS | Brak luki. W pełni zaimplementowano interfejs SmsExtractionEngine: FakeSmsExtractionEngine (deterministyczny) oraz FirebaseSmsExtractionEngine (Firebase AI Logic structured schema z gemini-2.5-flash-lite i fail-closed). | NONE |
-| **SP-065** | Testy obowiązkowe (MASTER_SPEC §65) | PASS | app/src/test/java/com/example/characterization/, docs/testing/TEST-MATRIX-V1.md | 111/111 unit tests PASS (--rerun), timezone-invariant, lintDebug PASS | Brak luki. Kompletna matryca testowa MASTER_SPEC §65 pokrywająca 9 kategorii: obsługa połączeń, overlay, klienci, zlecenia (+24h), SMS AI, ochrona danych, kalendarz, nawigacja/ETA, operacje masowe. | NONE |
+| **SP-065** | Testy obowiązkowe (MASTER_SPEC §65) | INCOMPLETE | app/src/test/java/com/example/characterization/, docs/testing/TEST-MATRIX-V1.md | 111/111 unit tests PASS (--rerun), timezone-invariant, lintDebug PASS | Matryca §65 pozostaje niepełna: 33/57 automated PASS, 23 deterministic GAP, 1 PHYSICAL_PENDING. | GAP |
 | **SP-066** | Definition of Done v1 (MASTER_SPEC §66) | RUNTIME_PENDING | docs/core/MASTER_SPEC.md, docs/testing/PHYSICAL-ACCEPTANCE-V1.md | Static preparation complete; 20 DoD operational scenarios documented for physical device acceptance | Wymaga przeprowadzenia 20 testów operacyjnych z paczki akceptacyjnej na fizycznym smartfonie z kartą SIM. | PHYSICAL_DEVICE |
 | **SP-067** | Funkcje świadomie poza v1 (MASTER_SPEC §67) | PASS | app/src/main/AndroidManifest.xml, build.gradle.kts | Codebase audit | Brak luki statycznej. | NONE |
 | **SP-068** | Zasada dalszego developmentu (MASTER_SPEC §68) | PASS | app/src/main/java/com/example/core/di/AppContainer.kt, app/src/main/java/com/example/data/database/CallUppDatabase.kt | Architectural decoupling audit | Brak luki statycznej. | NONE |
