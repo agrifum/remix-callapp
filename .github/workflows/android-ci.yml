@@ -89,6 +89,22 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Fail fast when KVM is unavailable
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error title=EMULATOR_INFRASTRUCTURE_FAILURE::/dev/kvm is missing on this runner. Failing before emulator launch."
+            ls -l /dev || true
+            exit 1
+          fi
+          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            echo "::error title=EMULATOR_INFRASTRUCTURE_FAILURE::/dev/kvm is not readable/writable by the current user."
+            id
+            getent group kvm || true
+            ls -l /dev/kvm || true
+            exit 1
+          fi
+          ls -l /dev/kvm
+
       - name: Build startup test artifacts
         run: ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
 
@@ -98,7 +114,20 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 240
           profile: pixel_4
           script: |
             ./gradlew --no-daemon :app:connectedDebugAndroidTest \
               -Pandroid.testInstrumentationRunnerArguments.class=com.example.ExampleInstrumentedTest#mainActivity_startsAndRendersOnboardingEntryPoint,com.example.ExampleInstrumentedTest#mainActivity_showsOnboardingStepIndicator,com.example.ExampleInstrumentedTest#mainActivity_survivesSingleRecreation,com.example.ExampleInstrumentedTest#mainActivity_survivesRotationChange,com.example.MainActivityColdStartInstrumentedTest#mainActivity_coldStartSkipsOnboardingWhenCompleted
+
+      - name: Emit emulator infrastructure diagnostics on failure
+        if: failure()
+        run: |
+          echo "::error title=EMULATOR_INFRASTRUCTURE_FAILURE::Emulator did not reach ready state or tests did not execute."
+          /usr/local/lib/android/sdk/platform-tools/adb devices -l || true
+          /usr/local/lib/android/sdk/platform-tools/adb -s emulator-5554 get-state || true
+          /usr/local/lib/android/sdk/platform-tools/adb -s emulator-5554 shell getprop sys.boot_completed || true
+          id || true
+          getent group kvm || true
+          ls -l /dev/kvm || true
