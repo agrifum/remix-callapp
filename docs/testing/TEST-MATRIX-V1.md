@@ -63,7 +63,7 @@ Canonical one-row-per-bullet matrix for MASTER_SPEC §65. The specification cont
 | 56 | delete multiple | JobMultiSelectionActionCharacterizationTest | UNIT_PASS |
 | 57 | restore from trash | JobMultiSelectionActionCharacterizationTest | UNIT_PASS |
 
-**Automated evidence rows:** 33/57 (UNIT/ROBOLECTRIC). **Deterministic gaps:** 23. **Physical pending:** 1
+**Automated evidence rows in §65 matrix:** 33/57 (UNIT/ROBOLECTRIC). **Deterministic gaps:** 23. **Physical pending:** 1
 (screen lock/unlock), with real carrier/OEM behavior explicitly not simulated.
 Runtime startup smoke coverage is tracked separately by `app/src/androidTest/java/com/example/ExampleInstrumentedTest.kt` and CI `runtime-startup` gate.
 This matrix is not a release gate until every GAP is covered.

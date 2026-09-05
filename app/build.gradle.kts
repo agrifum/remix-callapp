@@ -61,15 +61,6 @@ android {
   }
   testOptions {
     unitTests { isIncludeAndroidResources = true }
-    managedDevices {
-      localDevices {
-        create("pixel2Api36") {
-          device = "Pixel 2"
-          apiLevel = 36
-          systemImageSource = "aosp"
-        }
-      }
-    }
   }
   dependenciesInfo {
     includeInApk = false
@@ -130,6 +121,7 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   debugImplementation(libs.firebase.appcheck.debug)
   implementation(libs.hilt.android)
+  implementation(libs.androidx.hilt.navigation.compose)
   "ksp"(libs.hilt.compiler)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)

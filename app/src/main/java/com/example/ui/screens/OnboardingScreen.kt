@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -96,10 +97,13 @@ fun OnboardingScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Witaj w CallUpp")
+            Text("Witaj w CallUpp", modifier = Modifier.testTag("onboarding_welcome"))
             Text("Skonfiguruj dostęp krok po kroku. SMS i Kalendarz są proszone dopiero przy użyciu tych funkcji.")
             if (step < labels.size) {
-                Text("Krok ${step + 1} z ${labels.size}: ${labels[step]}")
+                Text(
+                    "Krok ${step + 1} z ${labels.size}: ${labels[step]}",
+                    modifier = Modifier.testTag("onboarding_step_label")
+                )
                 Button(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
