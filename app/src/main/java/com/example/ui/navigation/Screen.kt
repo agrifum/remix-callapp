@@ -18,6 +18,7 @@ sealed class Screen(val route: String, val title: String) {
         fun createRoute(jobId: String) = "job_detail/$jobId"
     }
     object Settings : Screen("settings", "Ustawienia")
+    object Permissions : Screen("permissions", "Uprawnienia")
     object ServicesSettings : Screen("services_settings", "Cennik i Usługi")
     object SmsTemplates : Screen("sms_templates", "Szablony SMS")
     object Trash : Screen("trash", "Kosz")
