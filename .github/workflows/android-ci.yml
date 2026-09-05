@@ -118,8 +118,7 @@ jobs:
           emulator-boot-timeout: 240
           profile: pixel_4
           script: |
-            ./gradlew --no-daemon :app:connectedDebugAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.class=com.example.ExampleInstrumentedTest#mainActivity_startsAndRendersOnboardingEntryPoint,com.example.ExampleInstrumentedTest#mainActivity_showsOnboardingStepIndicator,com.example.ExampleInstrumentedTest#mainActivity_survivesSingleRecreation,com.example.ExampleInstrumentedTest#mainActivity_survivesRotationChange,com.example.MainActivityColdStartInstrumentedTest#mainActivity_coldStartSkipsOnboardingWhenCompleted
+            ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.ExampleInstrumentedTest#mainActivity_startsAndRendersOnboardingEntryPoint,com.example.ExampleInstrumentedTest#mainActivity_showsOnboardingStepIndicator,com.example.ExampleInstrumentedTest#mainActivity_survivesSingleRecreation,com.example.ExampleInstrumentedTest#mainActivity_survivesRotationChange,com.example.MainActivityColdStartInstrumentedTest#mainActivity_coldStartSkipsOnboardingWhenCompleted
 
       - name: Emit emulator infrastructure diagnostics on failure
         if: failure()
