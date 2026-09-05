@@ -20,6 +20,10 @@ internal class OverlayInteractionState {
         pendingImeRequest = false
     }
 
+    fun onSaved() {
+        collapse()
+    }
+
     fun requestNoteInput(): Boolean {
         if (presentation != OverlayPresentation.EXPANDED) return false
         pendingImeRequest = true
