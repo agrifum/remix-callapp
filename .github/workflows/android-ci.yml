@@ -68,6 +68,21 @@ jobs:
       - name: Ensure gradlew is executable
         run: chmod +x ./gradlew
 
+      - name: Ensure debug keystore exists
+        run: |
+          if [ ! -f "debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -storetype JKS
+          fi
+
       - name: Build startup test artifacts
         run: ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
 
