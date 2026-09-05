@@ -19,12 +19,12 @@ jobs:
       - name: Checkout exact PR13 candidate
         uses: actions/checkout@v4
         with:
-          ref: 352d6b2eb9645512ac674aa653973fb86283c549
+          ref: 8a59db12db4d7c16c7f95f1fb33f3db6e2261bb2
           fetch-depth: 1
           persist-credentials: false
 
       - name: Verify exact candidate checkout
-        run: test "$(git rev-parse HEAD)" = "352d6b2eb9645512ac674aa653973fb86283c549"
+        run: test "$(git rev-parse HEAD)" = "8a59db12db4d7c16c7f95f1fb33f3db6e2261bb2"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -46,7 +46,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: CallUpp-PR13-CANDIDATE-352d6b2-debug
+          name: CallUpp-PR13-CANDIDATE-8a59db1-debug
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app-debug.apk.sha256
