@@ -1,4 +1,4 @@
-﻿package com.example.characterization
+package com.example.characterization
 
 import android.content.Context
 import androidx.room3.Room
@@ -40,7 +40,7 @@ class JobLifecycleCharacterizationTest {
     private lateinit var testClientId: String
 
     @Before
-    fun setUp() = runBlocking {
+    fun setUp() = runBlocking<Unit> {
         val context = ApplicationProvider.getApplicationContext<Context>()
         database = Room.inMemoryDatabaseBuilder(context, CallUppDatabase::class.java)
             .allowMainThreadQueries()
