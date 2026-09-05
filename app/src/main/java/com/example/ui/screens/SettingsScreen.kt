@@ -22,9 +22,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Message
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -48,7 +46,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.BuildConfig
 import com.example.data.preferences.AppPreferences
+import com.example.system.build.BuildIdentity
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,12 +63,13 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-
     val smsAnalysisEnabled by appPreferences.smsAnalysisGlobalEnabled.collectAsState(initial = true)
     val showClientTags by appPreferences.showClientTags.collectAsState(initial = true)
     val mapsEtaEnabled by appPreferences.mapsEtaParsingEnabled.collectAsState(initial = true)
-
     val canDrawOverlays = remember { Settings.canDrawOverlays(context) }
+    val buildIdentity = remember {
+        BuildIdentity(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE, BuildConfig.BUILD_COMMIT)
+    }
 
     Scaffold(
         topBar = {
@@ -84,26 +85,17 @@ fun SettingsScreen(
         modifier = modifier
     ) { innerPadding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(innerPadding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Permissions & System Integrations Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (canDrawOverlays) MaterialTheme.colorScheme.secondaryContainer
-                    else MaterialTheme.colorScheme.errorContainer
+                    containerColor = if (canDrawOverlays) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer
                 )
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (canDrawOverlays) Icons.Default.Check else Icons.Default.Security,
                         contentDescription = null,
@@ -117,29 +109,19 @@ fun SettingsScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (canDrawOverlays) "Podręczna notatka wyświetla się na wierzchu podczas połączeń telefonicznych."
-                            else "Zezwól na wyświetlanie nad innymi aplikacjami, aby notatka pojawiała się w trakcie rozmowy.",
+                            text = if (canDrawOverlays) "Podręczna notatka wyświetla się na wierzchu podczas połączeń telefonicznych." else "Zezwól na wyświetlanie nad innymi aplikacjami, aby notatka pojawiała się w trakcie rozmowy.",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
                     if (!canDrawOverlays) {
                         Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                val intent = Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:${context.packageName}")
-                                )
-                                context.startActivity(intent)
-                            }
-                        ) {
-                            Text("Włącz")
-                        }
+                        Button(onClick = {
+                            context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+                        }) { Text("Włącz") }
                     }
                 }
             }
 
-            // Quick navigation items: Cennik i Usługi, Kosz
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -148,87 +130,44 @@ fun SettingsScreen(
             ) {
                 Column {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onNavigateToServices)
-                            .padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().clickable(onClick = onNavigateToServices).padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Default.Build, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Katalog usług i cennik",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Zarządzaj usługami i domyślnymi stawkami PLN",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text("Katalog usług i cennik", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Zarządzaj usługami i domyślnymi stawkami PLN", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-
                     Divider(modifier = Modifier.padding(horizontal = 16.dp))
-
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onNavigateToSmsTemplates)
-                            .padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().clickable(onClick = onNavigateToSmsTemplates).padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Default.Message, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Szablony SMS",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Zarządzaj szybkimi odpowiedziami i zmiennymi wiadomości",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text("Szablony SMS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Zarządzaj szybkimi odpowiedziami i zmiennymi wiadomości", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-
                     Divider(modifier = Modifier.padding(horizontal = 16.dp))
-
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onNavigateToTrash)
-                            .padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().clickable(onClick = onNavigateToTrash).padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                         Spacer(modifier = Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Kosz (usunięte elementy)",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Przywracaj usunięte zlecenia, notatki i zadania (30 dni)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text("Kosz (usunięte elementy)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Przywracaj usunięte zlecenia, notatki i zadania (30 dni)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             }
 
-            Text(
-                text = "Preferencje automatyzacji",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-
-            // Preferences Card
+            Text("Preferencje automatyzacji", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -236,64 +175,44 @@ fun SettingsScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Analiza SMS w otwartych oknach zlecenia", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                             Text("Automatycznie proponuje adresy i terminy z wiadomości SMS od klientów z aktywnym zleceniem", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(
-                            checked = smsAnalysisEnabled,
-                            onCheckedChange = { checked ->
-                                scope.launch { appPreferences.setSmsAnalysisGlobalEnabled(checked) }
-                            }
-                        )
+                        Switch(checked = smsAnalysisEnabled, onCheckedChange = { checked -> scope.launch { appPreferences.setSmsAnalysisGlobalEnabled(checked) } })
                     }
-
                     Divider()
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Wyświetlaj tagi pochodne klientów", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                             Text("Pokazuj tagi miejscowości, dzielnic i aktywnych usług na kartach klientów", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(
-                            checked = showClientTags,
-                            onCheckedChange = { checked ->
-                                scope.launch { appPreferences.setShowClientTags(checked) }
-                            }
-                        )
+                        Switch(checked = showClientTags, onCheckedChange = { checked -> scope.launch { appPreferences.setShowClientTags(checked) } })
                     }
-
                     Divider()
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Odczyt ETA z powiadomień Google Maps", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                             Text("Pozwala odczytać przewidywany czas dojazdu bez sprawdzania GPS w tle", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(
-                            checked = mapsEtaEnabled,
-                            onCheckedChange = { checked ->
-                                scope.launch { appPreferences.setMapsEtaParsingEnabled(checked) }
-                            }
-                        )
+                        Switch(checked = mapsEtaEnabled, onCheckedChange = { checked -> scope.launch { appPreferences.setMapsEtaParsingEnabled(checked) } })
                     }
                 }
             }
 
-            // Local privacy guarantee card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Wersja aplikacji", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(buildIdentity.displayLabel(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),

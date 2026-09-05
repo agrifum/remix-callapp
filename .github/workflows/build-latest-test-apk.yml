@@ -16,6 +16,10 @@ jobs:
   build-test-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      CALLUPP_VERSION_CODE: ${{ github.run_number }}
+      CALLUPP_VERSION_NAME: 1.0.${{ github.run_number }}-test
+      CALLUPP_BUILD_COMMIT: ${{ github.sha }}
 
     steps:
       - name: Checkout current commit
@@ -61,16 +65,19 @@ jobs:
 
       - name: Prepare downloadable APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk CallUpp-latest-test.apk
-          sha256sum CallUpp-latest-test.apk | tee CallUpp-latest-test.apk.sha256
+          SHORT_SHA="${GITHUB_SHA::7}"
+          APK_NAME="CallUpp-test-v${CALLUPP_VERSION_NAME}-${SHORT_SHA}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
+          sha256sum "$APK_NAME" | tee "$APK_NAME.sha256"
+          echo "APK_NAME=$APK_NAME" >> "$GITHUB_ENV"
 
       - name: Upload latest test APK
         uses: actions/upload-artifact@v4
         with:
-          name: CallUpp-latest-test-${{ github.sha }}
+          name: CallUpp-test-v${{ env.CALLUPP_VERSION_NAME }}-${{ github.sha }}
           path: |
-            CallUpp-latest-test.apk
-            CallUpp-latest-test.apk.sha256
+            ${{ env.APK_NAME }}
+            ${{ env.APK_NAME }}.sha256
           if-no-files-found: error
           retention-days: 30
           compression-level: 0

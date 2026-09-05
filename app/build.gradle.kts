@@ -14,8 +14,10 @@ android {
     applicationId = "com.aistudio.callupp.enpzws"
     minSdk = 31
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = System.getenv("CALLUPP_VERSION_CODE")?.toIntOrNull() ?: 1
+    versionName = System.getenv("CALLUPP_VERSION_NAME") ?: "1.0"
+    val buildCommit = System.getenv("CALLUPP_BUILD_COMMIT") ?: "unknown"
+    buildConfigField("String", "BUILD_COMMIT", "\"$buildCommit\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
