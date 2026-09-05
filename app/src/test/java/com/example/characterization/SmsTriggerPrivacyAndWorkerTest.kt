@@ -376,11 +376,14 @@ class SmsTriggerPrivacyAndWorkerTest {
         receiver.onReceive(app, createSmsIntent())
 
         val trigger = withTimeout<SmsTriggerEntity>(5000) {
-            while (true) {
-                val latest = app.container.smsTriggerDao.getLatestTriggerForClient(clientId)
-                if (latest != null) return@withTimeout latest
-                kotlinx.coroutines.delay(25)
+            var latest: SmsTriggerEntity? = null
+            while (latest == null) {
+                latest = app.container.smsTriggerDao.getLatestTriggerForClient(clientId)
+                if (latest == null) {
+                    kotlinx.coroutines.delay(25)
+                }
             }
+            latest ?: error("Trigger not found for client within timeout")
         }
         assertEquals(clientId, trigger.clientId)
         assertEquals("+48501234567", trigger.senderPhoneKey)
