@@ -21,6 +21,18 @@ class OverlayInteractionStateTest {
     }
 
     @Test
+    fun `saving during an active call keeps overlay session available`() {
+        val state = OverlayInteractionState()
+        state.expand()
+
+        state.onSaved()
+
+        assertEquals(OverlayPresentation.COLLAPSED, state.presentation)
+        state.expand()
+        assertEquals(OverlayPresentation.EXPANDED, state.presentation)
+    }
+
+    @Test
     fun `IME is requested only after expanded overlay receives window focus`() {
         val state = OverlayInteractionState()
         state.expand()

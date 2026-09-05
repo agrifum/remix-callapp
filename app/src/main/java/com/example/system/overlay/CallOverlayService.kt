@@ -289,6 +289,7 @@ class CallOverlayService : Service() {
             var selectedServiceId: String? = existingDraft?.serviceId
             var selectedPreliminaryDateEpochDay: Long? = existingDraft?.preliminaryDateEpochDay
             var selectedPreliminaryTimeMinute: Int? = existingDraft?.preliminaryTimeMinute
+            var taskRequested = existingDraft?.taskRequested == true
 
             val buildCurrentDraft = {
                 val text = overlayNote.text?.toString() ?: ""
@@ -301,7 +302,7 @@ class CallOverlayService : Service() {
                     serviceId = selectedServiceId,
                     preliminaryDateEpochDay = selectedPreliminaryDateEpochDay,
                     preliminaryTimeMinute = selectedPreliminaryTimeMinute,
-                    taskRequested = false,
+                    taskRequested = taskRequested,
                     updatedAt = System.currentTimeMillis()
                 )
             }
@@ -733,52 +734,24 @@ class CallOverlayService : Service() {
 
             isRestoringDraft = false
 
-            // Helper to commit and close
-            fun commitAndClose(toTasks: Boolean) {
-                isCommitted = true
+            // Save/update the active call draft without ending the overlay session.
+            fun saveAndCollapse(toTasks: Boolean) {
+                if (toTasks) taskRequested = true
                 draftSaveJob?.cancel()
                 draftSaveJob = null
-                currentDraftProvider = null
-                releaseOverlayFocus()
-                val noteText = overlayNote.text?.toString() ?: ""
-
-                app.container.callDraftRepository.tryClaimManualCommit(currentSessionId)
-
-                app.container.appScope.launch {
-                    val clientDisplayName = when {
-                        client != null -> client.displayName
-                        isMarkAsClient -> app.container.contactLookupRepository.resolveDisplayName(key)
-                        else -> null
-                    }
-
-                    val req = OverlayCommitRequest(
-                        callSessionId = currentSessionId,
-                        phone = key,
-                        noteText = noteText,
-                        markAsClient = isMarkAsClient,
-                        clientDisplayName = clientDisplayName,
-                        createJob = createJob,
-                        serviceId = selectedServiceId,
-                        preliminaryDateEpochDay = selectedPreliminaryDateEpochDay,
-                        preliminaryTimeMinute = selectedPreliminaryTimeMinute,
-                        createOpenTask = toTasks,
-                        callDirection = currentDirection,
-                        callTimestamp = currentCallTimestamp
-                    )
-                    app.container.callDraftRepository.commitOverlaySession(req)
-                }
-                hideOverlayWindow()
-                stopSelf()
+                saveCurrentDraft()
+                interactionState.onSaved()
+                collapseOverlay()
             }
 
             // 10. "Do Zadań"
             taskButton.setOnClickListener {
-                commitAndClose(toTasks = true)
+                saveAndCollapse(toTasks = true)
             }
 
             // 11. "Zapisz"
             saveButton.setOnClickListener {
-                commitAndClose(toTasks = false)
+                saveAndCollapse(toTasks = false)
             }
 
             // Minimize the expanded form back to the floating bubble.
