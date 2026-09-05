@@ -23,6 +23,7 @@ import com.example.data.entity.JobAnalysisWindowEntity
 import com.example.data.entity.JobEntity
 import com.example.data.entity.NoteEntity
 import com.example.data.entity.TaskEntity
+import com.example.system.work.JobCompletionScheduler
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -52,7 +53,8 @@ class CallDraftRepository(
     private val jobDao: JobDao,
     private val windowDao: JobAnalysisWindowDao,
     private val taskDao: TaskDao,
-    private val serviceDao: ServiceDao
+    private val serviceDao: ServiceDao,
+    private val jobCompletionScheduler: JobCompletionScheduler? = null
 ) {
 
     enum class SessionState {
@@ -363,6 +365,7 @@ class CallDraftRepository(
         if (isSessionCommitted(request.callSessionId)) return
         val key = PhoneNumberNormalizer.normalizeKey(request.phone)
         val now = System.currentTimeMillis()
+        val jobsToSchedule = mutableListOf<JobEntity>()
 
         database.withWriteTransaction {
             var clientId: String? = null
@@ -453,6 +456,7 @@ class CallDraftRepository(
                     updatedAt = now
                 )
                 jobDao.insertJob(job)
+                jobsToSchedule.add(job)
 
                 val window = JobAnalysisWindowEntity(
                     jobId = jobId,
@@ -467,5 +471,6 @@ class CallDraftRepository(
 
         // Mark committed only after successful transaction completion
         markSessionCommitted(request.callSessionId)
+        jobsToSchedule.forEach { jobCompletionScheduler?.scheduleCompletion(it) }
     }
 }

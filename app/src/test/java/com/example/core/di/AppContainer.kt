@@ -47,7 +47,7 @@ class AppContainer(val context: Context) {
         database, jobDao, windowDao, jobCompletionScheduler, calendarManager, clientDao
     )
     val callDraftRepository = CallDraftRepository(
-        database, callDraftDao, noteDao, clientDao, jobDao, windowDao, taskDao, serviceDao
+        database, callDraftDao, noteDao, clientDao, jobDao, windowDao, taskDao, serviceDao, jobCompletionScheduler
     )
     val aiSuggestionRepository = AiSuggestionRepository(
         database, aiSuggestionDao, clientDao, jobDao, jobCompletionScheduler, calendarManager

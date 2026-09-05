@@ -164,9 +164,20 @@ object AppModule {
         jobDao: com.example.data.dao.JobDao,
         windowDao: com.example.data.dao.JobAnalysisWindowDao,
         taskDao: com.example.data.dao.TaskDao,
-        serviceDao: com.example.data.dao.ServiceDao
+        serviceDao: com.example.data.dao.ServiceDao,
+        scheduler: JobCompletionScheduler
     ): CallDraftRepository {
-        return CallDraftRepository(database, callDraftDao, noteDao, clientDao, jobDao, windowDao, taskDao, serviceDao)
+        return CallDraftRepository(
+            database,
+            callDraftDao,
+            noteDao,
+            clientDao,
+            jobDao,
+            windowDao,
+            taskDao,
+            serviceDao,
+            scheduler
+        )
     }
 
     @Provides
