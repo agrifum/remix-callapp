@@ -78,7 +78,7 @@ All 20 tests must be performed on a physical Android device (API 31–36, e.g. A
   1. From overlay, tap "Do zadań" with note text.
   2. Open "Zadania" tab in main app.
   3. Mark task as completed.
-- **Pass Criteria:** Open task appears in tab, and toggling completion updates status to `COMPLETED`.
+- **Pass Criteria:** Open task appears in tab, and toggling completion updates status to `DONE`.
 
 ### TC-09: Multiple Jobs per Client
 - **Requirement:** Obsługuje wiele zleceń klienta (§66.9).
@@ -128,7 +128,7 @@ All 20 tests must be performed on a physical Android device (API 31–36, e.g. A
 - **Requirement:** Nawiguj otwiera Google Maps (§66.15).
 - **Procedure:**
   1. Tap "Nawiguj" on a job with client address.
-- **Pass Criteria:** Google Maps app opens directly with target location prefilled (`geo:0,0?q=...`).
+- **Pass Criteria:** Google Maps app opens directly with target location prefilled (`google.navigation:q=...`).
 
 ### TC-16: Manual ETA Fallback
 - **Requirement:** ETA ma działający manualny fallback (§66.16).
@@ -140,7 +140,7 @@ All 20 tests must be performed on a physical Android device (API 31–36, e.g. A
 ### TC-17: SMS Template Substitution
 - **Requirement:** Szablony SMS działają (§66.17).
 - **Procedure:**
-  1. Open SMS button on job card, select template containing `{KLIENT}`, `{DATA}`, `{GODZINA}`.
+  1. Open SMS button on job card, select template containing `{klient}`, `{data}`, `{godzina}`.
 - **Pass Criteria:** Default SMS app launches via `ACTION_SENDTO` with variables substituted into template body.
 
 ### TC-18: Offline Operation Without AI or Network

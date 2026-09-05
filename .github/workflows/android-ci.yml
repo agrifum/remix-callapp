@@ -19,10 +19,23 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (PR exact head)
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+
+      - name: Checkout repository
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: actions/checkout@v4
+
+      - name: Verify exact PR head checkout
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "Expected PR head: ${{ github.event.pull_request.head.sha }}"
+          echo "Checked out HEAD: $(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4

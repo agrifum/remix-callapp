@@ -30,8 +30,8 @@ interface ClientDao {
     @Query("SELECT * FROM clients WHERE phoneKey = :phoneKey LIMIT 1")
     suspend fun getClientByPhoneKeySync(phoneKey: String): ClientEntity?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertClient(client: ClientEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertClient(client: ClientEntity): Long
 
     @Update
     suspend fun updateClient(client: ClientEntity)

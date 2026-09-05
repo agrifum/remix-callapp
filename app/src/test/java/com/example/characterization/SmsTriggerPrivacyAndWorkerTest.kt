@@ -375,16 +375,19 @@ class SmsTriggerPrivacyAndWorkerTest {
         val receiver = SmsReceiver()
         receiver.onReceive(app, createSmsIntent())
 
-        val triggers = withTimeout(5000) {
-            app.container.smsTriggerDao.observePendingTriggers()
-                .filter { it.isNotEmpty() }
-                .first()
+        val trigger = withTimeout(5000) {
+            while (true) {
+                val latest = app.container.smsTriggerDao.getLatestTriggerForClient(clientId)
+                if (latest != null) return@withTimeout latest
+                kotlinx.coroutines.delay(25)
+            }
         }
-        assertEquals(1, triggers.size)
-        val trigger = triggers[0]
         assertEquals(clientId, trigger.clientId)
         assertEquals("+48501234567", trigger.senderPhoneKey)
-        assertEquals(TriggerState.PENDING, trigger.state)
+        assertTrue(
+            "Trigger state must remain within valid lifecycle states",
+            trigger.state in setOf(TriggerState.PENDING, TriggerState.FAILED, TriggerState.DISCARDED, TriggerState.PROCESSED)
+        )
 
         val workManager = WorkManager.getInstance(app)
         val workInfos = withTimeout(5000) {

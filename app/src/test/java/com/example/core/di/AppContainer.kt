@@ -39,7 +39,7 @@ class AppContainer(val context: Context) {
     val appPreferences = AppPreferences(context)
     val jobCompletionScheduler: JobCompletionScheduler = WorkManagerJobCompletionScheduler(context)
     val calendarManager: CalendarManager = AndroidCalendarManager(context)
-    val clientRepository = ClientRepository(clientDao, jobDao)
+    val clientRepository = ClientRepository(database, clientDao, jobDao)
     val noteRepository = NoteRepository(noteDao)
     val taskRepository = TaskRepository(taskDao)
     val serviceRepository = ServiceRepository(serviceDao)

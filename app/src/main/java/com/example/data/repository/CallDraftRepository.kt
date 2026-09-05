@@ -382,8 +382,12 @@ class CallDraftRepository(
                         createdAt = now,
                         updatedAt = now
                     )
-                    clientDao.insertClient(newClient)
-                    clientId = newClientId
+                    val insertResult = clientDao.insertClient(newClient)
+                    clientId = if (insertResult == -1L) {
+                        clientDao.getClientByPhoneKeySync(key)?.id ?: newClientId
+                    } else {
+                        newClientId
+                    }
                 } else {
                     clientId = existingClient.id
                 }
@@ -465,4 +469,3 @@ class CallDraftRepository(
         markSessionCommitted(request.callSessionId)
     }
 }
-

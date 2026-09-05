@@ -30,6 +30,9 @@ interface SmsTriggerDao {
     @Query("SELECT * FROM sms_triggers WHERE id = :id LIMIT 1")
     suspend fun getTriggerById(id: String): SmsTriggerEntity?
 
+    @Query("SELECT * FROM sms_triggers WHERE clientId = :clientId ORDER BY receivedAt DESC LIMIT 1")
+    suspend fun getLatestTriggerForClient(clientId: String): SmsTriggerEntity?
+
     @Query("UPDATE sms_triggers SET state = :state WHERE id = :id")
     suspend fun updateState(id: String, state: TriggerState)
 

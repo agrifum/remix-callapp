@@ -249,6 +249,28 @@ class JobLifecycleCharacterizationTest {
     }
 
     @Test
+    fun getActiveJobsForClientSync_includesArchivedActiveJobsForBusinessRules() = runBlocking {
+        val visibleActiveJobId = repository.createJob(
+            JobEntity(
+                clientId = testClientId,
+                status = JobStatus.ACTIVE,
+                isArchived = false
+            )
+        )
+        val archivedActiveJobId = repository.createJob(
+            JobEntity(
+                clientId = testClientId,
+                status = JobStatus.ACTIVE,
+                isArchived = true
+            )
+        )
+
+        val activeJobs = repository.getActiveJobsForClientSync(testClientId)
+        assertTrue(activeJobs.any { it.id == visibleActiveJobId })
+        assertTrue(activeJobs.any { it.id == archivedActiveJobId })
+    }
+
+    @Test
     fun calculateCompletionAnchor_prefersConfirmedStartOverPreliminary() {
         val confirmedTime = 1750000000000L
         val job = JobEntity(

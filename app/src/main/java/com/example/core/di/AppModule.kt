@@ -116,10 +116,11 @@ object AppModule {
     @Provides
     @Singleton
     fun provideClientRepository(
+        database: CallUppDatabase,
         clientDao: com.example.data.dao.ClientDao,
         jobDao: com.example.data.dao.JobDao
     ): ClientRepository {
-        return ClientRepository(clientDao, jobDao)
+        return ClientRepository(database, clientDao, jobDao)
     }
 
     @Provides

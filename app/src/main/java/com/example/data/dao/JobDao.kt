@@ -21,10 +21,10 @@ interface JobDao {
     @Query("SELECT * FROM jobs WHERE deletedAt IS NULL ORDER BY createdAt DESC")
     fun getAllNonDeletedJobs(): Flow<List<JobEntity>>
 
-    @Query("SELECT * FROM jobs WHERE clientId = :clientId AND status = 'ACTIVE' AND isArchived = 0 AND deletedAt IS NULL ORDER BY createdAt DESC")
+    @Query("SELECT * FROM jobs WHERE clientId = :clientId AND status = 'ACTIVE' AND deletedAt IS NULL ORDER BY createdAt DESC")
     fun getActiveJobsForClient(clientId: String): Flow<List<JobEntity>>
 
-    @Query("SELECT * FROM jobs WHERE clientId = :clientId AND status = 'ACTIVE' AND isArchived = 0 AND deletedAt IS NULL ORDER BY createdAt DESC")
+    @Query("SELECT * FROM jobs WHERE clientId = :clientId AND status = 'ACTIVE' AND deletedAt IS NULL ORDER BY createdAt DESC")
     suspend fun getActiveJobsForClientSync(clientId: String): List<JobEntity>
 
     @Query("SELECT * FROM jobs WHERE clientId = :clientId AND deletedAt IS NULL ORDER BY createdAt DESC")
@@ -50,6 +50,31 @@ interface JobDao {
 
     @Update
     suspend fun updateJob(job: JobEntity)
+
+    @Query(
+        """
+        UPDATE jobs
+        SET
+            addressCitySnapshot = :city,
+            addressDistrictSnapshot = :district,
+            addressStreetSnapshot = :street,
+            addressBuildingSnapshot = :buildingNumber,
+            addressUnitSnapshot = :unitNumber,
+            addressPostalCodeSnapshot = :postalCode,
+            updatedAt = :updatedAt
+        WHERE clientId = :clientId AND status = 'ACTIVE' AND deletedAt IS NULL
+        """
+    )
+    suspend fun updateActiveJobAddressSnapshotsForClient(
+        clientId: String,
+        city: String?,
+        district: String?,
+        street: String?,
+        buildingNumber: String?,
+        unitNumber: String?,
+        postalCode: String?,
+        updatedAt: Long = System.currentTimeMillis()
+    )
 
     @Query("""
         UPDATE jobs
