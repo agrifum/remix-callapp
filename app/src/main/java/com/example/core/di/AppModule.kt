@@ -199,9 +199,10 @@ object AppModule {
         database: CallUppDatabase,
         reengagementDao: com.example.data.dao.ReengagementEventDao,
         jobDao: com.example.data.dao.JobDao,
-        jobRepository: JobRepository
+        windowDao: com.example.data.dao.JobAnalysisWindowDao,
+        scheduler: JobCompletionScheduler
     ): ReengagementRepository {
-        return ReengagementRepository(database, reengagementDao, jobDao, jobRepository)
+        return ReengagementRepository(database, reengagementDao, jobDao, windowDao, scheduler)
     }
 
     @Provides
@@ -248,7 +249,8 @@ object AppModule {
         aiSuggestionDao: com.example.data.dao.AiSuggestionDao,
         smsTriggerDao: com.example.data.dao.SmsTriggerDao,
         preferences: AppPreferences,
-        smsExtractionEngine: SmsExtractionEngine
+        smsExtractionEngine: SmsExtractionEngine,
+        scheduler: JobCompletionScheduler
     ): SmsAnalysisCoordinator {
         return SmsAnalysisCoordinator(
             database = database,
@@ -258,7 +260,8 @@ object AppModule {
             suggestionDao = aiSuggestionDao,
             triggerDao = smsTriggerDao,
             appPreferences = preferences,
-            extractionEngine = smsExtractionEngine
+            extractionEngine = smsExtractionEngine,
+            scheduler = scheduler
         )
     }
 

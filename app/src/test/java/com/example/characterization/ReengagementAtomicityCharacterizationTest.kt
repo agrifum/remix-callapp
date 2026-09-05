@@ -50,7 +50,7 @@ class ReengagementAtomicityCharacterizationTest {
             database = database,
             reengagementDao = database.reengagementEventDao(),
             jobDao = database.jobDao(),
-            jobRepository = jobRepository
+            windowDao = database.jobAnalysisWindowDao()
         )
     }
 

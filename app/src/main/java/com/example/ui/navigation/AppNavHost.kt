@@ -31,6 +31,7 @@ import com.example.data.repository.SmsTemplateRepository
 import com.example.data.repository.TaskRepository
 import com.example.system.calendar.CalendarManager
 import com.example.system.calls.CallLogRepository
+import com.example.system.contacts.ContactLookupRepository
 import com.example.ui.screens.CallsScreen
 import com.example.ui.screens.ClientDetailScreen
 import com.example.ui.screens.JobDetailScreen
@@ -63,7 +64,8 @@ fun AppNavHost(
     callDraftRepository: CallDraftRepository,
     appPreferences: AppPreferences,
     smsTemplateRepository: SmsTemplateRepository,
-    calendarManager: CalendarManager
+    calendarManager: CalendarManager,
+    contactLookupRepository: ContactLookupRepository
 ) {
     val onboardingCompleted by appPreferences.onboardingCompleted.collectAsState(initial = null)
     val backStack = rememberNavBackStack(Screen.Calls)
@@ -189,9 +191,15 @@ fun AppNavHost(
                         clientRepository = clientRepository,
                         jobRepository = jobRepository,
                         noteRepository = noteRepository,
+                        taskRepository = taskRepository,
+                        callLogRepository = callLogRepository,
+                        appPreferences = appPreferences,
                         onNavigateBack = { popBackStack() },
                         onNavigateToJob = { jobId ->
                             navigateTo(Screen.JobDetail(jobId))
+                        },
+                        onNewJobForClient = {
+                            navigateTo(Screen.NewJob)
                         }
                     )
                 }
@@ -201,6 +209,9 @@ fun AppNavHost(
                         phoneKey = numberDetail.phoneKey,
                         clientRepository = clientRepository,
                         noteRepository = noteRepository,
+                        taskRepository = taskRepository,
+                        callLogRepository = callLogRepository,
+                        contactLookupRepository = contactLookupRepository,
                         onNavigateBack = { popBackStack() },
                         onNavigateToClient = { clientId ->
                             navigateTo(Screen.ClientDetail(clientId))

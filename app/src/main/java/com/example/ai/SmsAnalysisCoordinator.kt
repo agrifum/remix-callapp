@@ -20,6 +20,7 @@ import com.example.data.dao.SmsTriggerDao
 import com.example.data.entity.AiSuggestionEntity
 import com.example.data.entity.JobEntity
 import com.example.data.preferences.AppPreferences
+import com.example.system.work.JobCompletionScheduler
 import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 import java.time.LocalDateTime
@@ -34,7 +35,8 @@ class SmsAnalysisCoordinator(
     private val suggestionDao: AiSuggestionDao,
     private val triggerDao: SmsTriggerDao,
     private val appPreferences: AppPreferences,
-    private val extractionEngine: SmsExtractionEngine
+    private val extractionEngine: SmsExtractionEngine,
+    private val scheduler: JobCompletionScheduler? = null
 ) {
 
     /**
@@ -132,7 +134,8 @@ class SmsAnalysisCoordinator(
         }
 
         // 6. Apply field protection rules inside transaction with full re-validation
-        return database.withWriteTransaction {
+        val jobsToReschedule = mutableListOf<JobEntity>()
+        val applied = database.withWriteTransaction {
             // Re-verify global setting
             val currentGlobalEnabled = appPreferences.smsAnalysisGlobalEnabled.first()
             if (!currentGlobalEnabled) {
@@ -150,7 +153,7 @@ class SmsAnalysisCoordinator(
             // Helper to re-verify that a Job is still ACTIVE, not deleted, and has an open window covering receivedAt
             suspend fun getStillValidJob(jobId: String): JobEntity? {
                 val job = jobDao.getJobByIdSync(jobId) ?: return null
-                if (job.status != JobStatus.ACTIVE || job.isArchived || job.deletedAt != null) return null
+                if (job.status != JobStatus.ACTIVE || job.deletedAt != null) return null
                 val window = windowDao.getOpenWindowForJob(job.id) ?: return null
                 if (window.endedAt != null || trigger.receivedAt < window.startedAt) return null
                 return job
@@ -249,6 +252,13 @@ class SmsAnalysisCoordinator(
                                 updatedAt = System.currentTimeMillis()
                             )
                         )
+                        jobsToReschedule.add(
+                            currentJob.copy(
+                                preliminaryDateEpochDay = term.dateEpochDay,
+                                preliminaryTimeMinute = term.timeMinute,
+                                preliminaryTimeQualifier = term.qualifier
+                            )
+                        )
                     } else {
                         // Job already has term -> NEVER overwrite automatically! Create suggestion
                         val json = JSONObject().apply {
@@ -316,5 +326,9 @@ class SmsAnalysisCoordinator(
             triggerDao.updateState(triggerId, TriggerState.PROCESSED)
             true
         }
+        if (applied) {
+            jobsToReschedule.forEach { scheduler?.scheduleCompletion(it) }
+        }
+        return applied
     }
 }

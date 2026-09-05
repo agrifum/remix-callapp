@@ -53,7 +53,7 @@ class AppContainer(val context: Context) {
         database, aiSuggestionDao, clientDao, jobDao, jobCompletionScheduler, calendarManager
     )
     val reengagementRepository = ReengagementRepository(
-        database, reengagementEventDao, jobDao, jobRepository
+        database, reengagementEventDao, jobDao, windowDao, jobCompletionScheduler
     )
     val smsTemplateRepository = SmsTemplateRepository(smsTemplateDao)
     val callLogRepository = CallLogRepository(context, clientDao, noteDao)

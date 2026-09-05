@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -61,10 +63,14 @@ import com.example.core.model.JobStatus
 import com.example.core.model.NameSource
 import com.example.core.model.SmsAnalysisMode
 import com.example.data.entity.ClientEntity
+import com.example.data.preferences.AppPreferences
 import com.example.data.repository.ClientRepository
 import com.example.data.repository.JobRepository
 import com.example.data.repository.NoteRepository
+import com.example.data.repository.TaskRepository
+import com.example.system.calls.CallLogRepository
 import com.example.ui.components.JobCard
+import com.example.ui.model.CallRowDirection
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -74,15 +80,19 @@ fun ClientDetailScreen(
     clientRepository: ClientRepository,
     jobRepository: JobRepository,
     noteRepository: NoteRepository,
+    taskRepository: TaskRepository,
+    callLogRepository: CallLogRepository,
+    appPreferences: AppPreferences,
     onNavigateBack: () -> Unit,
     onNavigateToJob: (String) -> Unit,
-    onNewJobForClient: ((String) -> Unit)? = null,
+    onNewJobForClient: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val client by clientRepository.getClientById(clientId).collectAsState(initial = null)
     val jobs by jobRepository.getAllJobsForClient(clientId).collectAsState(initial = emptyList())
+    val showClientTags by appPreferences.showClientTags.collectAsState(initial = true)
 
     val activeJobs = remember(jobs) { jobs.filter { it.status == JobStatus.ACTIVE && !it.isArchived } }
     val historyJobs = remember(jobs) { jobs.filter { it.status != JobStatus.ACTIVE && !it.isArchived } }
@@ -139,6 +149,11 @@ fun ClientDetailScreen(
         modifier = modifier
     ) { innerPadding ->
         client?.let { c ->
+            val activeNotes by noteRepository.getActiveNotesForPhone(c.phoneKey).collectAsState(initial = emptyList())
+            val archivedNotes by noteRepository.getArchivedNotesForPhone(c.phoneKey).collectAsState(initial = emptyList())
+            val tasks by taskRepository.getTasksForPhone(c.phoneKey).collectAsState(initial = emptyList())
+            val filteredCalls by callLogRepository.observeFilteredCallLogs().collectAsState(initial = emptyList())
+            val clientCalls = remember(filteredCalls, c.phoneKey) { filteredCalls.filter { it.phoneKey == c.phoneKey }.take(6) }
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -198,7 +213,7 @@ fun ClientDetailScreen(
                             activeJobs.mapNotNull { it.serviceNameSnapshot?.ifBlank { null } }.distinct().forEach { add(it) }
                         }
 
-                        if (tags.isNotEmpty()) {
+                        if (showClientTags && tags.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(8.dp))
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -353,6 +368,91 @@ fun ClientDetailScreen(
                             clientName = null,
                             onClick = { onNavigateToJob(job.id) }
                         )
+                    }
+                }
+
+                if (onNewJobForClient != null) {
+                    OutlinedButton(onClick = onNewJobForClient, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Nowe zlecenie")
+                    }
+                }
+
+                Text(
+                    text = "Aktywne notatki (${activeNotes.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                activeNotes.take(5).forEach { note ->
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(note.rawText, style = MaterialTheme.typography.bodyMedium)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(com.example.core.time.DateTimeFormatters.formatDateTime(note.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                if (archivedNotes.isNotEmpty()) {
+                    Text(
+                        text = "Zarchiwizowane notatki (${archivedNotes.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    archivedNotes.take(5).forEach { note ->
+                        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(note.rawText, style = MaterialTheme.typography.bodySmall)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(com.example.core.time.DateTimeFormatters.formatDateTime(note.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                TextButton(onClick = { scope.launch { noteRepository.setArchived(note.id, false) } }) { Text("Przywróć") }
+                            }
+                        }
+                    }
+                }
+
+                Text(
+                    text = "Zadania (${tasks.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                tasks.take(5).forEach { task ->
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(task.noteText, style = MaterialTheme.typography.bodyMedium)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Numer: ${task.phoneKey}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (task.status != com.example.core.model.TaskStatus.DONE) {
+                                TextButton(onClick = { scope.launch { taskRepository.setTaskStatus(task.taskId, com.example.core.model.TaskStatus.DONE) } }) {
+                                    Text("DONE")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text(
+                    text = "Historia połączeń (${clientCalls.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                clientCalls.forEach { call ->
+                    val directionText = when (call.direction) {
+                        CallRowDirection.INCOMING -> "Przychodzące"
+                        CallRowDirection.OUTGOING -> "Wychodzące"
+                        CallRowDirection.MISSED -> "Nieodebrane"
+                    }
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("${call.displayNumber} • $directionText", style = MaterialTheme.typography.bodyMedium)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(com.example.core.time.DateTimeFormatters.formatDateTime(call.timestamp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
 

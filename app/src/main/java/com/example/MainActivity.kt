@@ -22,6 +22,7 @@ import com.example.data.repository.SmsTemplateRepository
 import com.example.data.repository.TaskRepository
 import com.example.system.calendar.CalendarManager
 import com.example.system.calls.CallLogRepository
+import com.example.system.contacts.ContactLookupRepository
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -36,6 +37,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var appPreferences: AppPreferences
     @Inject lateinit var smsTemplateRepository: SmsTemplateRepository
     @Inject lateinit var calendarManager: CalendarManager
+    @Inject lateinit var contactLookupRepository: ContactLookupRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,7 +56,8 @@ class MainActivity : ComponentActivity() {
                         callDraftRepository = callDraftRepository,
                         appPreferences = appPreferences,
                         smsTemplateRepository = smsTemplateRepository,
-                        calendarManager = calendarManager
+                        calendarManager = calendarManager,
+                        contactLookupRepository = contactLookupRepository
                     )
                 }
             }
