@@ -1,7 +1,7 @@
 package com.example
 
 import android.content.pm.ActivityInfo
-import androidx.compose.ui.test.fetchSemanticsNodes
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -19,13 +19,20 @@ import org.junit.rules.RuleChain
 class ExampleInstrumentedTest {
   private val prelaunchOnboardingStateRule = PrelaunchOnboardingStateRule(onboardingCompletedBeforeLaunch = false)
   private val composeRule = createAndroidComposeRule<MainActivity>()
+
+  private fun hasSingleNodeWithTag(tag: String): Boolean =
+    runCatching {
+      composeRule.onAllNodesWithTag(tag).assertCountEquals(1)
+      true
+    }.getOrElse { false }
+
   @get:Rule
   val ruleChain: RuleChain = RuleChain.outerRule(prelaunchOnboardingStateRule).around(composeRule)
 
   @Test
   fun mainActivity_startsAndRendersOnboardingEntryPoint() {
     composeRule.waitUntil(timeoutMillis = 5_000) {
-      composeRule.onAllNodesWithTag("onboarding_welcome").fetchSemanticsNodes().isNotEmpty()
+      hasSingleNodeWithTag("onboarding_welcome")
     }
     composeRule.onNodeWithTag("onboarding_welcome").assertIsDisplayed()
     assertEquals(Lifecycle.State.RESUMED, composeRule.activityRule.scenario.state)
@@ -34,7 +41,7 @@ class ExampleInstrumentedTest {
   @Test
   fun mainActivity_showsOnboardingStepIndicator() {
     composeRule.waitUntil(timeoutMillis = 5_000) {
-      composeRule.onAllNodesWithTag("onboarding_step_label").fetchSemanticsNodes().isNotEmpty()
+      hasSingleNodeWithTag("onboarding_step_label")
     }
     composeRule.onNodeWithTag("onboarding_step_label").assertIsDisplayed()
     assertEquals(Lifecycle.State.RESUMED, composeRule.activityRule.scenario.state)
@@ -45,7 +52,7 @@ class ExampleInstrumentedTest {
     composeRule.activityRule.scenario.recreate()
     composeRule.waitForIdle()
     composeRule.waitUntil(timeoutMillis = 5_000) {
-      composeRule.onAllNodesWithTag("onboarding_welcome").fetchSemanticsNodes().isNotEmpty()
+      hasSingleNodeWithTag("onboarding_welcome")
     }
     composeRule.onNodeWithTag("onboarding_welcome").assertIsDisplayed()
     assertEquals(Lifecycle.State.RESUMED, composeRule.activityRule.scenario.state)
@@ -78,7 +85,7 @@ class ExampleInstrumentedTest {
       }
       assertNotEquals(beforeInstanceId, afterInstanceId)
       composeRule.waitUntil(timeoutMillis = 5_000) {
-        composeRule.onAllNodesWithTag("onboarding_welcome").fetchSemanticsNodes().isNotEmpty()
+        hasSingleNodeWithTag("onboarding_welcome")
       }
       composeRule.onNodeWithTag("onboarding_welcome").assertIsDisplayed()
       assertEquals(Lifecycle.State.RESUMED, composeRule.activityRule.scenario.state)

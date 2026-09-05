@@ -2,7 +2,6 @@ package com.example
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.fetchSemanticsNodes
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -19,13 +18,20 @@ import org.junit.runner.RunWith
 class MainActivityColdStartInstrumentedTest {
   private val prelaunchOnboardingStateRule = PrelaunchOnboardingStateRule(onboardingCompletedBeforeLaunch = true)
   private val composeRule = createAndroidComposeRule<MainActivity>()
+
+  private fun hasSingleNodeWithText(text: String): Boolean =
+    runCatching {
+      composeRule.onAllNodesWithText(text).assertCountEquals(1)
+      true
+    }.getOrElse { false }
+
   @get:Rule
   val ruleChain: RuleChain = RuleChain.outerRule(prelaunchOnboardingStateRule).around(composeRule)
 
   @Test
   fun mainActivity_coldStartSkipsOnboardingWhenCompleted() {
     composeRule.waitUntil(timeoutMillis = 5_000) {
-      composeRule.onAllNodesWithText("Połączenia").fetchSemanticsNodes().isNotEmpty()
+      hasSingleNodeWithText("Połączenia")
     }
     composeRule.onNodeWithText("Połączenia").assertIsDisplayed()
     composeRule.onAllNodesWithTag("onboarding_welcome").assertCountEquals(0)
