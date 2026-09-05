@@ -117,11 +117,28 @@ fun AppNavHost(container: AppContainer, navController: NavHostController = remem
                     onNavigateToPermissions = { navController.navigate(Screen.Permissions.route) }
                 )
             }
-            composable(Screen.Permissions.route) { PermissionsScreen(onNavigateBack = { navController.popBackStack() }) }
-            composable(Screen.ServicesSettings.route) { ServicesSettingsScreen(container.serviceRepository) { navController.popBackStack() } }
-            composable(Screen.SmsTemplates.route) { SmsTemplatesScreen(container.smsTemplateRepository) { navController.popBackStack() } }
+            composable(Screen.Permissions.route) {
+                PermissionsScreen(onNavigateBack = { navController.popBackStack() })
+            }
+            composable(Screen.ServicesSettings.route) {
+                ServicesSettingsScreen(
+                    serviceRepository = container.serviceRepository,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.SmsTemplates.route) {
+                SmsTemplatesScreen(
+                    smsTemplateRepository = container.smsTemplateRepository,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
             composable(Screen.Trash.route) {
-                TrashScreen(container.jobRepository, container.noteRepository, container.taskRepository) { navController.popBackStack() }
+                TrashScreen(
+                    jobRepository = container.jobRepository,
+                    noteRepository = container.noteRepository,
+                    taskRepository = container.taskRepository,
+                    onNavigateBack = { navController.popBackStack() }
+                )
             }
         }
     }
