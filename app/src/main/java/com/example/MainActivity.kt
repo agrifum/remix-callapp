@@ -62,7 +62,6 @@ class MainActivity : ComponentActivity() {
             permissionLauncher.launch(missing.toTypedArray())
         } else {
             restartCallMonitoringIfAllowed()
-            requestOverlayIfNeeded()
         }
     }
 
