@@ -137,6 +137,8 @@ Przejścia: DRAFT→READY po researchu, spójnym CP i jednym PASS; DRAFT/READY�
 ### IMP-RUNTIME-RECOVERY-V1-r1 metadata
 - STATUS: EXECUTED / RUNTIME_ENVIRONMENT_UNAVAILABLE
 - BASE: 4d133d0698657a9ebeb7ae6c6da4766d18d5c030
+- END: 51c23b72aab0af10ae7d93768f8a992529a5c9eb
 - SCOPE: Navigation 3 serialization repair, MainActivity startup instrumentation coverage, CI emulator runtime gate, evidence reclassification
 - CONTROL STATUS: do not merge; do not start physical acceptance
 - LOCAL EVIDENCE: `git diff --check` PASS; runtime/build tasks blocked by unresolved AGP plugin resolution (`com.android.application:9.4.0`) in this sandbox; runtime status recorded as `RUNTIME_ENVIRONMENT_UNAVAILABLE`
+- CI EVIDENCE: Android CI run `33960498005` for exact head `51c23b72aab0af10ae7d93768f8a992529a5c9eb` is `action_required` with no executed jobs yet.
