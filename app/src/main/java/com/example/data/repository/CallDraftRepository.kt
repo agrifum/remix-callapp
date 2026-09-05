@@ -302,26 +302,21 @@ class CallDraftRepository(
             markSessionCommitted(callSessionId)
             return
         }
-        if (draft.noteText.isNotBlank()) {
-            val key = PhoneNumberNormalizer.normalizeKey(draft.phoneKey)
-            database.withTransaction {
-                val note = NoteEntity(
-                    id = UUID.randomUUID().toString(),
-                    phoneKey = key,
-                    rawText = draft.noteText.trim(),
-                    source = NoteSource.CALL,
-                    sourceCallDirection = callDirection,
-                    sourceCallAt = callTime ?: System.currentTimeMillis()
-                )
-                noteDao.insertNote(note)
-                callDraftDao.deleteDraft(callSessionId)
-            }
-            // Mark committed only after the database transaction successfully commits
-            markSessionCommitted(callSessionId)
-        } else {
-            callDraftDao.deleteDraft(callSessionId)
-            markSessionCommitted(callSessionId)
-        }
+        val request = OverlayCommitRequest(
+            callSessionId = callSessionId,
+            phone = draft.phoneKey,
+            noteText = draft.noteText,
+            markAsClient = draft.markAsClient,
+            clientDisplayName = null,
+            createJob = draft.createJob,
+            serviceId = draft.serviceId,
+            preliminaryDateEpochDay = draft.preliminaryDateEpochDay,
+            preliminaryTimeMinute = draft.preliminaryTimeMinute,
+            createOpenTask = draft.taskRequested,
+            callDirection = callDirection,
+            callTimestamp = callTime
+        )
+        performCommitOverlaySession(request)
     }
 
     /**
