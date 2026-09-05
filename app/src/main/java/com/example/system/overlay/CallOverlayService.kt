@@ -183,6 +183,7 @@ class CallOverlayService : Service() {
             val inflater = LayoutInflater.from(this@CallOverlayService)
             val view = inflater.inflate(R.layout.call_overlay, container, false)
             container.addView(view)
+            val interactionState = OverlayInteractionState()
 
             // Views lookup
             val overlayTitle = view.findViewById<TextView>(R.id.overlayTitle)
@@ -210,6 +211,37 @@ class CallOverlayService : Service() {
 
             val taskButton = view.findViewById<Button>(R.id.taskButton)
             val saveButton = view.findViewById<Button>(R.id.saveButton)
+
+            val density = resources.displayMetrics.density
+            val dpToPx = { dp: Int -> (dp * density).toInt() }
+            val screenWidth = resources.displayMetrics.widthPixels
+            val screenHeight = resources.displayMetrics.heightPixels
+            val bubbleSize = dpToPx(56)
+            val bubbleEdgeInset = dpToPx(8)
+            val bubbleTopInset = dpToPx(48)
+            val bubbleBottomInset = dpToPx(80)
+            var bubbleX = (screenWidth - bubbleSize - bubbleEdgeInset).coerceAtLeast(bubbleEdgeInset)
+            var bubbleY = BubblePosition.clamp(
+                (screenHeight * 0.35f).toInt(),
+                bubbleTopInset,
+                (screenHeight - bubbleSize - bubbleBottomInset).coerceAtLeast(bubbleTopInset)
+            )
+
+            val bubble = TextView(this@CallOverlayService).apply {
+                text = "CU"
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                contentDescription = "Otwórz CallUpp"
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.parseColor("#FF1976D2"))
+                }
+                elevation = dpToPx(6).toFloat()
+                layoutParams = FrameLayout.LayoutParams(bubbleSize, bubbleSize)
+            }
+            container.addView(bubble)
+            view.visibility = View.GONE
 
             var isRestoringDraft = true
 
@@ -303,9 +335,9 @@ class CallOverlayService : Service() {
                 override fun afterTextChanged(s: Editable?) {}
             })
 
-            // WindowManager LayoutParams: default FLAG_NOT_FOCUSABLE so dialer retains system focus
+            // The window starts as a small, non-focusable bubble so it does not cover the dialer.
             val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -313,40 +345,83 @@ class CallOverlayService : Service() {
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                y = 120
+                gravity = Gravity.TOP or Gravity.START
+                x = bubbleX
+                y = bubbleY
                 softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN or
                     WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
             }
 
-            fun requestOverlayFocus() {
-                if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) != 0) {
-                    params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-                    try {
-                        windowManager?.updateViewLayout(container, params)
-                    } catch (e: Exception) {
-                        // WindowManager update failed
-                    }
+            fun updateWindowLayout() {
+                try {
+                    windowManager?.updateViewLayout(container, params)
+                } catch (e: Exception) {
+                    // WindowManager update failed
                 }
+            }
+
+            fun showImeNow() {
                 overlayNote.requestFocus()
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-                imm?.showSoftInput(overlayNote, InputMethodManager.SHOW_IMPLICIT)
                 overlayNote.post {
                     imm?.showSoftInput(overlayNote, InputMethodManager.SHOW_IMPLICIT)
                 }
             }
 
+            fun requestOverlayFocus() {
+                if (!interactionState.requestNoteInput()) return
+
+                overlayNote.requestFocus()
+                if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) != 0) {
+                    params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+                    updateWindowLayout()
+                }
+
+                if (container.hasWindowFocus() && interactionState.onWindowFocusChanged(true)) {
+                    showImeNow()
+                }
+            }
+
             fun releaseOverlayFocus() {
+                interactionState.cancelNoteInput()
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                 imm?.hideSoftInputFromWindow(overlayNote.windowToken, 0)
                 overlayNote.clearFocus()
                 if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) == 0) {
                     params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                    try {
-                        windowManager?.updateViewLayout(container, params)
-                    } catch (e: Exception) {
-                        // WindowManager update failed
-                    }
+                    updateWindowLayout()
+                }
+            }
+
+            fun expandOverlay() {
+                interactionState.expand()
+                bubble.visibility = View.GONE
+                view.visibility = View.VISIBLE
+                params.width = WindowManager.LayoutParams.MATCH_PARENT
+                params.height = WindowManager.LayoutParams.WRAP_CONTENT
+                params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                params.x = 0
+                params.y = 120
+                params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                updateWindowLayout()
+            }
+
+            fun collapseOverlay() {
+                releaseOverlayFocus()
+                interactionState.collapse()
+                view.visibility = View.GONE
+                bubble.visibility = View.VISIBLE
+                params.width = WindowManager.LayoutParams.WRAP_CONTENT
+                params.height = WindowManager.LayoutParams.WRAP_CONTENT
+                params.gravity = Gravity.TOP or Gravity.START
+                params.x = bubbleX
+                params.y = bubbleY
+                updateWindowLayout()
+            }
+
+            container.onWindowFocusChangedListener = { hasFocus ->
+                if (interactionState.onWindowFocusChanged(hasFocus)) {
+                    showImeNow()
                 }
             }
 
@@ -371,10 +446,65 @@ class CallOverlayService : Service() {
                 false
             }
 
-            // Helper chip styling functions
-            val density = resources.displayMetrics.density
-            val dpToPx = { dp: Int -> (dp * density).toInt() }
+            var dragStartRawX = 0f
+            var dragStartRawY = 0f
+            var dragStartX = 0
+            var dragStartY = 0
+            var bubbleDragged = false
+            val dragThreshold = dpToPx(6)
 
+            bubble.setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        dragStartRawX = event.rawX
+                        dragStartRawY = event.rawY
+                        dragStartX = params.x
+                        dragStartY = params.y
+                        bubbleDragged = false
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = (event.rawX - dragStartRawX).toInt()
+                        val dy = (event.rawY - dragStartRawY).toInt()
+                        if (!bubbleDragged && kotlin.math.abs(dx) + kotlin.math.abs(dy) >= dragThreshold) {
+                            bubbleDragged = true
+                        }
+                        bubbleX = BubblePosition.clamp(
+                            dragStartX + dx,
+                            bubbleEdgeInset,
+                            (screenWidth - bubbleSize - bubbleEdgeInset).coerceAtLeast(bubbleEdgeInset)
+                        )
+                        bubbleY = BubblePosition.clamp(
+                            dragStartY + dy,
+                            bubbleTopInset,
+                            (screenHeight - bubbleSize - bubbleBottomInset).coerceAtLeast(bubbleTopInset)
+                        )
+                        params.x = bubbleX
+                        params.y = bubbleY
+                        updateWindowLayout()
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (bubbleDragged) {
+                            bubbleX = BubblePosition.snapX(
+                                currentX = params.x,
+                                bubbleWidth = bubbleSize,
+                                screenWidth = screenWidth,
+                                edgeInset = bubbleEdgeInset
+                            )
+                            params.x = bubbleX
+                            updateWindowLayout()
+                        } else {
+                            expandOverlay()
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> true
+                    else -> false
+                }
+            }
+
+            // Helper chip styling functions
             fun createChipBackground(selected: Boolean): GradientDrawable {
                 return GradientDrawable().apply {
                     cornerRadius = 16f * density
@@ -651,20 +781,10 @@ class CallOverlayService : Service() {
                 commitAndClose(toTasks = false)
             }
 
-            // 12. Close X
+            // Minimize the expanded form back to the floating bubble.
+            overlayClose.contentDescription = "Minimalizuj"
             overlayClose.setOnClickListener {
-                draftSaveJob?.cancel()
-                draftSaveJob = null
-                releaseOverlayFocus()
-                val draft = currentDraftProvider?.invoke()
-                currentDraftProvider = null
-                if (draft != null && draft.noteText.isNotBlank()) {
-                    app.container.appScope.launch {
-                        app.container.callDraftRepository.saveDraft(draft)
-                    }
-                }
-                hideOverlayWindow()
-                stopSelf()
+                collapseOverlay()
             }
 
             try {
@@ -683,6 +803,7 @@ class CallOverlayService : Service() {
 
         var noteEditText: EditText? = null
         var onReleaseFocus: (() -> Unit)? = null
+        var onWindowFocusChangedListener: ((Boolean) -> Unit)? = null
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val mode = MeasureSpec.getMode(heightMeasureSpec)
@@ -693,6 +814,11 @@ class CallOverlayService : Service() {
                 MeasureSpec.makeMeasureSpec(minOf(size, maxHeightPx), mode)
             }
             super.onMeasure(widthMeasureSpec, newHeightSpec)
+        }
+
+        override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+            super.onWindowFocusChanged(hasWindowFocus)
+            onWindowFocusChangedListener?.invoke(hasWindowFocus)
         }
 
         override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -753,4 +879,3 @@ class CallOverlayService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 }
-
