@@ -5,33 +5,44 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import com.example.core.di.AppContainer
 import com.example.system.work.JobStatusReconciler
 import com.example.system.work.TrashCleanupWorker
+import dagger.hilt.android.HiltAndroidApp
+import com.google.firebase.FirebaseApp
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
+import javax.inject.Inject
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
+@HiltAndroidApp
 class CallUppApplication : Application() {
 
-    lateinit var container: AppContainer
-        private set
-
-    lateinit var callStateMonitor: com.example.system.calls.CallStateMonitor
-        private set
+    @Inject lateinit var callStateMonitor: com.example.system.calls.CallStateMonitor
+    @Inject lateinit var appScope: kotlinx.coroutines.CoroutineScope
+    @Inject lateinit var smsTriggerRecovery: com.example.system.work.SmsTriggerRecovery
 
     override fun onCreate() {
         super.onCreate()
-        container = AppContainer(this)
-        callStateMonitor = com.example.system.calls.CallStateMonitor(this)
+        installProductionAppCheck()
         ensureCallStateMonitoring()
         setupBackgroundWorkers()
         recoverOutstandingTriggers()
     }
 
+    private fun installProductionAppCheck() {
+        runCatching {
+            FirebaseApp.getInstance()
+            FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+                PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
+        }
+    }
+
     private fun recoverOutstandingTriggers() {
-        container.appScope.launch {
+        appScope.launch {
             try {
-                container.smsTriggerRecovery.recoverPendingTriggers()
+                smsTriggerRecovery.recoverPendingTriggers()
             } catch (_: Exception) {
                 // Non-blocking safe recovery
             }

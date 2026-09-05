@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.core.model.TaskStatus
 import com.example.core.model.NameSource
 import com.example.core.phone.PhoneNumberNormalizer
 import com.example.core.time.DateTimeFormatters
@@ -57,6 +58,10 @@ import com.example.data.entity.ClientEntity
 import com.example.data.entity.NoteEntity
 import com.example.data.repository.ClientRepository
 import com.example.data.repository.NoteRepository
+import com.example.data.repository.TaskRepository
+import com.example.system.calls.CallLogRepository
+import com.example.system.contacts.ContactLookupRepository
+import com.example.ui.model.CallRowDirection
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -66,6 +71,9 @@ fun NumberDetailScreen(
     phoneKey: String,
     clientRepository: ClientRepository,
     noteRepository: NoteRepository,
+    taskRepository: TaskRepository,
+    callLogRepository: CallLogRepository,
+    contactLookupRepository: ContactLookupRepository,
     onNavigateBack: () -> Unit,
     onNavigateToClient: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -77,6 +85,13 @@ fun NumberDetailScreen(
 
     val client by clientRepository.getClientByPhoneKey(normalizedKey).collectAsState(initial = null)
     val notes by noteRepository.getActiveNotesForPhone(normalizedKey).collectAsState(initial = emptyList())
+    val archivedNotes by noteRepository.getArchivedNotesForPhone(normalizedKey).collectAsState(initial = emptyList())
+    val tasks by taskRepository.getTasksForPhone(normalizedKey).collectAsState(initial = emptyList())
+    val filteredCalls by callLogRepository.observeFilteredCallLogs().collectAsState(initial = emptyList())
+    val contactName by androidx.compose.runtime.produceState(initialValue = "", key1 = normalizedKey) {
+        value = contactLookupRepository.resolveDisplayName(normalizedKey)
+    }
+    val numberCalls = remember(filteredCalls, normalizedKey) { filteredCalls.filter { it.phoneKey == normalizedKey }.take(6) }
 
     var showAddNoteDialog by remember { mutableStateOf(false) }
     var newNoteText by remember { mutableStateOf("") }
@@ -125,6 +140,13 @@ fun NumberDetailScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (contactName.isNotBlank() && contactName != "Klient $normalizedKey") {
+                        Text(
+                            text = "Kontakt: $contactName",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -181,6 +203,82 @@ fun NumberDetailScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Zobacz profil klienta i zlecenia")
+                        }
+
+                        if (archivedNotes.isNotEmpty()) {
+                            Text(
+                                text = "Zarchiwizowane notatki (${archivedNotes.size})",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            archivedNotes.take(5).forEach { note ->
+                                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(note.rawText, style = MaterialTheme.typography.bodySmall)
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(DateTimeFormatters.formatDateTime(note.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        TextButton(onClick = { scope.launch { noteRepository.setArchived(note.id, false) } }) {
+                                            Text("Przywróć")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = "Zadania (${tasks.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        tasks.take(5).forEach { task ->
+                            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(task.noteText, style = MaterialTheme.typography.bodyMedium)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(DateTimeFormatters.formatDateTime(task.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    if (task.status != TaskStatus.DONE) {
+                                        TextButton(onClick = { scope.launch { taskRepository.setTaskStatus(task.taskId, TaskStatus.DONE) } }) {
+                                            Text("DONE")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = "Historia połączeń (${numberCalls.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        numberCalls.forEach { call ->
+                            val directionText = when (call.direction) {
+                                CallRowDirection.INCOMING -> "Przychodzące"
+                                CallRowDirection.OUTGOING -> "Wychodzące"
+                                CallRowDirection.MISSED -> "Nieodebrane"
+                            }
+                            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(directionText, style = MaterialTheme.typography.bodyMedium)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(DateTimeFormatters.formatDateTime(call.timestamp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
                         }
                     }
                 }

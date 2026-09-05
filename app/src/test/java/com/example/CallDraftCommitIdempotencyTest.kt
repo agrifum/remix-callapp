@@ -1,7 +1,7 @@
 package com.example
 
 import android.content.Context
-import androidx.room.Room
+import androidx.room3.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.model.CallDirection
 import com.example.core.phone.PhoneNumberNormalizer
@@ -530,8 +530,8 @@ class CallDraftCommitIdempotencyTest {
             )
         )
 
-        // Drop table to deterministically trigger SQLite transaction failure
-        database.openHelper.writableDatabase.execSQL("DROP TABLE clients")
+        // Close database to deterministically trigger SQLite transaction failure
+        database.close()
 
         val req = OverlayCommitRequest(
             callSessionId = sessionId,

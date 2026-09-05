@@ -11,23 +11,34 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavHostController
-import androidx.navigation.NavType
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
-import com.example.core.di.AppContainer
+import androidx.navigation3.runtime.NavEntry
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.ui.NavDisplay
+import com.example.data.preferences.AppPreferences
+import com.example.data.repository.CallDraftRepository
+import com.example.data.repository.ClientRepository
+import com.example.data.repository.JobRepository
+import com.example.data.repository.NoteRepository
+import com.example.data.repository.ReengagementRepository
+import com.example.data.repository.ServiceRepository
+import com.example.data.repository.SmsTemplateRepository
+import com.example.data.repository.TaskRepository
+import com.example.system.calendar.CalendarManager
+import com.example.system.calls.CallLogRepository
+import com.example.system.contacts.ContactLookupRepository
 import com.example.ui.screens.CallsScreen
 import com.example.ui.screens.ClientDetailScreen
 import com.example.ui.screens.JobDetailScreen
 import com.example.ui.screens.JobsScreen
 import com.example.ui.screens.NewJobScreen
 import com.example.ui.screens.NumberDetailScreen
+import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.ServicesSettingsScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SimulatorScreen
@@ -35,19 +46,37 @@ import com.example.ui.screens.SmsTemplatesScreen
 import com.example.ui.screens.TasksScreen
 import com.example.ui.screens.TrashScreen
 
-sealed class BottomNavItem(val route: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    object Calls : BottomNavItem(Screen.Calls.route, "Połączenia", Icons.Default.Phone)
-    object Jobs : BottomNavItem(Screen.Jobs.route, "Zlecenia", Icons.Default.Build)
-    object Tasks : BottomNavItem(Screen.Tasks.route, "Zadania", Icons.Default.CheckCircle)
+sealed class BottomNavItem(val screen: Screen, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    object Calls : BottomNavItem(Screen.Calls, "Połączenia", Icons.Default.Phone)
+    object Jobs : BottomNavItem(Screen.Jobs, "Zlecenia", Icons.Default.Build)
+    object Tasks : BottomNavItem(Screen.Tasks, "Zadania", Icons.Default.CheckCircle)
 }
 
 @Composable
 fun AppNavHost(
-    container: AppContainer,
-    navController: NavHostController = rememberNavController()
+    callLogRepository: CallLogRepository,
+    clientRepository: ClientRepository,
+    reengagementRepository: ReengagementRepository,
+    jobRepository: JobRepository,
+    taskRepository: TaskRepository,
+    noteRepository: NoteRepository,
+    serviceRepository: ServiceRepository,
+    callDraftRepository: CallDraftRepository,
+    appPreferences: AppPreferences,
+    smsTemplateRepository: SmsTemplateRepository,
+    calendarManager: CalendarManager,
+    contactLookupRepository: ContactLookupRepository
 ) {
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
+    val onboardingCompleted by appPreferences.onboardingCompleted.collectAsState(initial = null)
+    val backStack = rememberNavBackStack(Screen.Calls)
+    val currentScreen = backStack.lastOrNull() as? Screen ?: Screen.Calls
+
+    LaunchedEffect(onboardingCompleted) {
+        if (onboardingCompleted == false && !backStack.contains(Screen.Onboarding)) {
+            backStack.clear()
+            backStack.add(Screen.Onboarding)
+        }
+    }
 
     val bottomItems = listOf(
         BottomNavItem.Calls,
@@ -55,7 +84,27 @@ fun AppNavHost(
         BottomNavItem.Tasks
     )
 
-    val showBottomBar = bottomItems.any { it.route == currentRoute }
+    val showBottomBar = bottomItems.any { it.screen == currentScreen }
+
+    fun navigateTo(screen: Screen) {
+        if (backStack.lastOrNull() != screen) {
+            backStack.add(screen)
+        }
+    }
+
+    fun popBackStack() {
+        if (backStack.size > 1) {
+            backStack.removeAt(backStack.size - 1)
+        }
+    }
+
+    fun navigateBottomTab(targetScreen: Screen) {
+        if (currentScreen != targetScreen) {
+            // Keep root and switch tab cleanly
+            backStack.clear()
+            backStack.add(targetScreen)
+        }
+    }
 
     Scaffold(
         bottomBar = {
@@ -65,15 +114,9 @@ fun AppNavHost(
                         NavigationBarItem(
                             icon = { Icon(item.icon, contentDescription = item.title) },
                             label = { Text(item.title) },
-                            selected = currentRoute == item.route,
+                            selected = currentScreen == item.screen,
                             onClick = {
-                                navController.navigate(item.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
+                                navigateBottomTab(item.screen)
                             }
                         )
                     }
@@ -81,156 +124,162 @@ fun AppNavHost(
             }
         }
     ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Calls.route,
-            modifier = Modifier.padding(innerPadding)
-        ) {
-            composable(Screen.Calls.route) {
-                CallsScreen(
-                    callLogRepository = container.callLogRepository,
-                    clientRepository = container.clientRepository,
-                    reengagementRepository = container.reengagementRepository,
-                    onClientClick = { clientId ->
-                        navController.navigate(Screen.ClientDetail.createRoute(clientId))
-                    },
-                    onNumberClick = { phoneKey ->
-                        navController.navigate(Screen.NumberDetail.createRoute(phoneKey))
-                    },
-                    onOpenSettings = {
-                        navController.navigate(Screen.Settings.route)
-                    }
-                )
-            }
+        NavDisplay(
+            backStack = backStack,
+            modifier = Modifier.padding(innerPadding),
+            entryProvider = entryProvider {
+                entry<Screen.Calls> {
+                    CallsScreen(
+                        callLogRepository = callLogRepository,
+                        clientRepository = clientRepository,
+                        reengagementRepository = reengagementRepository,
+                        onClientClick = { clientId ->
+                            navigateTo(Screen.ClientDetail(clientId))
+                        },
+                        onNumberClick = { phoneKey ->
+                            navigateTo(Screen.NumberDetail(phoneKey))
+                        },
+                        onOpenSettings = {
+                            navigateTo(Screen.Settings)
+                        }
+                    )
+                }
 
-            composable(Screen.Jobs.route) {
-                JobsScreen(
-                    jobRepository = container.jobRepository,
-                    clientRepository = container.clientRepository,
-                    onJobClick = { jobId ->
-                        navController.navigate(Screen.JobDetail.createRoute(jobId))
-                    },
-                    onNewJobClick = {
-                        navController.navigate(Screen.NewJob.route)
-                    }
-                )
-            }
+                entry<Screen.Jobs> {
+                    JobsScreen(
+                        jobRepository = jobRepository,
+                        clientRepository = clientRepository,
+                        onJobClick = { jobId ->
+                            navigateTo(Screen.JobDetail(jobId))
+                        },
+                        onNewJobClick = {
+                            navigateTo(Screen.NewJob)
+                        }
+                    )
+                }
 
-            composable(Screen.Tasks.route) {
-                TasksScreen(
-                    taskRepository = container.taskRepository,
-                    noteRepository = container.noteRepository
-                )
-            }
+                entry<Screen.Tasks> {
+                    TasksScreen(
+                        taskRepository = taskRepository,
+                        noteRepository = noteRepository
+                    )
+                }
 
-            composable(Screen.Simulator.route) {
-                SimulatorScreen(
-                    clientRepository = container.clientRepository,
-                    serviceRepository = container.serviceRepository,
-                    callDraftRepository = container.callDraftRepository,
-                    onNavigateToJobs = {
-                        navController.navigate(Screen.Jobs.route)
-                    }
-                )
-            }
+                entry<Screen.Simulator> {
+                    SimulatorScreen(
+                        clientRepository = clientRepository,
+                        serviceRepository = serviceRepository,
+                        callDraftRepository = callDraftRepository,
+                        onNavigateToJobs = {
+                            navigateBottomTab(Screen.Jobs)
+                        }
+                    )
+                }
 
-            composable(Screen.NewJob.route) {
-                NewJobScreen(
-                    jobRepository = container.jobRepository,
-                    clientRepository = container.clientRepository,
-                    serviceRepository = container.serviceRepository,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
+                entry<Screen.NewJob> {
+                    NewJobScreen(
+                        jobRepository = jobRepository,
+                        clientRepository = clientRepository,
+                        serviceRepository = serviceRepository,
+                        onNavigateBack = { popBackStack() }
+                    )
+                }
 
-            composable(
-                route = Screen.ClientDetail.route,
-                arguments = listOf(navArgument("clientId") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val clientId = backStackEntry.arguments?.getString("clientId") ?: ""
-                ClientDetailScreen(
-                    clientId = clientId,
-                    clientRepository = container.clientRepository,
-                    jobRepository = container.jobRepository,
-                    noteRepository = container.noteRepository,
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToJob = { jobId ->
-                        navController.navigate(Screen.JobDetail.createRoute(jobId))
-                    }
-                )
-            }
+                entry<Screen.ClientDetail> { clientDetail ->
+                    ClientDetailScreen(
+                        clientId = clientDetail.clientId,
+                        clientRepository = clientRepository,
+                        jobRepository = jobRepository,
+                        noteRepository = noteRepository,
+                        taskRepository = taskRepository,
+                        callLogRepository = callLogRepository,
+                        appPreferences = appPreferences,
+                        onNavigateBack = { popBackStack() },
+                        onNavigateToJob = { jobId ->
+                            navigateTo(Screen.JobDetail(jobId))
+                        },
+                        onNewJobForClient = {
+                            navigateTo(Screen.NewJob)
+                        }
+                    )
+                }
 
-            composable(
-                route = Screen.NumberDetail.route,
-                arguments = listOf(navArgument("phoneKey") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val phoneKey = backStackEntry.arguments?.getString("phoneKey") ?: ""
-                NumberDetailScreen(
-                    phoneKey = phoneKey,
-                    clientRepository = container.clientRepository,
-                    noteRepository = container.noteRepository,
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToClient = { clientId ->
-                        navController.navigate(Screen.ClientDetail.createRoute(clientId))
-                    }
-                )
-            }
+                entry<Screen.NumberDetail> { numberDetail ->
+                    NumberDetailScreen(
+                        phoneKey = numberDetail.phoneKey,
+                        clientRepository = clientRepository,
+                        noteRepository = noteRepository,
+                        taskRepository = taskRepository,
+                        callLogRepository = callLogRepository,
+                        contactLookupRepository = contactLookupRepository,
+                        onNavigateBack = { popBackStack() },
+                        onNavigateToClient = { clientId ->
+                            navigateTo(Screen.ClientDetail(clientId))
+                        }
+                    )
+                }
 
-            composable(
-                route = Screen.JobDetail.route,
-                arguments = listOf(navArgument("jobId") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val jobId = backStackEntry.arguments?.getString("jobId") ?: ""
-                JobDetailScreen(
-                    jobId = jobId,
-                    jobRepository = container.jobRepository,
-                    clientRepository = container.clientRepository,
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToClient = { clientId ->
-                        navController.navigate(Screen.ClientDetail.createRoute(clientId))
-                    },
-                    calendarManager = container.calendarManager
-                )
-            }
+                entry<Screen.JobDetail> { jobDetail ->
+                    JobDetailScreen(
+                        jobId = jobDetail.jobId,
+                        jobRepository = jobRepository,
+                        clientRepository = clientRepository,
+                        onNavigateBack = { popBackStack() },
+                        onNavigateToClient = { clientId ->
+                            navigateTo(Screen.ClientDetail(clientId))
+                        },
+                        calendarManager = calendarManager
+                    )
+                }
 
-            composable(Screen.Settings.route) {
-                SettingsScreen(
-                    appPreferences = container.appPreferences,
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToServices = {
-                        navController.navigate(Screen.ServicesSettings.route)
-                    },
-                    onNavigateToTrash = {
-                        navController.navigate(Screen.Trash.route)
-                    },
-                    onNavigateToSmsTemplates = {
-                        navController.navigate(Screen.SmsTemplates.route)
-                    }
-                )
-            }
+                entry<Screen.Settings> {
+                    SettingsScreen(
+                        appPreferences = appPreferences,
+                        onNavigateBack = { popBackStack() },
+                        onNavigateToServices = {
+                            navigateTo(Screen.ServicesSettings)
+                        },
+                        onNavigateToTrash = {
+                            navigateTo(Screen.Trash)
+                        },
+                        onNavigateToSmsTemplates = {
+                            navigateTo(Screen.SmsTemplates)
+                        }
+                    )
+                }
 
-            composable(Screen.ServicesSettings.route) {
-                ServicesSettingsScreen(
-                    serviceRepository = container.serviceRepository,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
+                entry<Screen.ServicesSettings> {
+                    ServicesSettingsScreen(
+                        serviceRepository = serviceRepository,
+                        onNavigateBack = { popBackStack() }
+                    )
+                }
 
-            composable(Screen.SmsTemplates.route) {
-                SmsTemplatesScreen(
-                    smsTemplateRepository = container.smsTemplateRepository,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
+                entry<Screen.SmsTemplates> {
+                    SmsTemplatesScreen(
+                        smsTemplateRepository = smsTemplateRepository,
+                        onNavigateBack = { popBackStack() }
+                    )
+                }
 
-            composable(Screen.Trash.route) {
-                TrashScreen(
-                    jobRepository = container.jobRepository,
-                    noteRepository = container.noteRepository,
-                    taskRepository = container.taskRepository,
-                    onNavigateBack = { navController.popBackStack() }
-                )
+                entry<Screen.Trash> {
+                    TrashScreen(
+                        jobRepository = jobRepository,
+                        noteRepository = noteRepository,
+                        taskRepository = taskRepository,
+                        onNavigateBack = { popBackStack() }
+                    )
+                }
+
+                entry<Screen.Onboarding> {
+                    OnboardingScreen(
+                        appPreferences = appPreferences,
+                        onComplete = {
+                            navigateBottomTab(Screen.Calls)
+                        }
+                    )
+                }
             }
-        }
+        )
     }
 }

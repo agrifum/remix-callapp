@@ -1,7 +1,7 @@
 package com.example.data.entity
 
-import androidx.room.Entity
-import androidx.room.PrimaryKey
+import androidx.room3.Entity
+import androidx.room3.PrimaryKey
 import java.util.UUID
 
 @Entity(tableName = "sms_templates")

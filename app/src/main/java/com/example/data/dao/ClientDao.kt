@@ -1,11 +1,11 @@
 package com.example.data.dao
 
-import androidx.room.Dao
-import androidx.room.Delete
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
-import androidx.room.Update
+import androidx.room3.Dao
+import androidx.room3.Delete
+import androidx.room3.Insert
+import androidx.room3.OnConflictStrategy
+import androidx.room3.Query
+import androidx.room3.Update
 import com.example.data.entity.ClientEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -30,8 +30,8 @@ interface ClientDao {
     @Query("SELECT * FROM clients WHERE phoneKey = :phoneKey LIMIT 1")
     suspend fun getClientByPhoneKeySync(phoneKey: String): ClientEntity?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertClient(client: ClientEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertClient(client: ClientEntity): Long
 
     @Update
     suspend fun updateClient(client: ClientEntity)

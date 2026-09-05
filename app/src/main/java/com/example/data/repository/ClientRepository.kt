@@ -1,7 +1,9 @@
 package com.example.data.repository
 
+import androidx.room3.withWriteTransaction
 import com.example.core.model.JobStatus
 import com.example.core.phone.PhoneNumberNormalizer
+import com.example.data.database.CallUppDatabase
 import com.example.data.dao.ClientDao
 import com.example.data.dao.JobDao
 import com.example.data.entity.ClientEntity
@@ -10,6 +12,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 
 class ClientRepository(
+    private val database: CallUppDatabase,
     private val clientDao: ClientDao,
     private val jobDao: JobDao
 ) {
@@ -32,13 +35,46 @@ class ClientRepository(
     suspend fun insertClient(client: ClientEntity) {
         val normalizedKey = PhoneNumberNormalizer.normalizeKey(client.phoneKey)
         val display = PhoneNumberNormalizer.formatDisplay(normalizedKey)
-        clientDao.insertClient(client.copy(phoneKey = normalizedKey, phoneDisplay = display, updatedAt = System.currentTimeMillis()))
+        val now = System.currentTimeMillis()
+        val candidate = client.copy(phoneKey = normalizedKey, phoneDisplay = display, updatedAt = now)
+        val insertResult = clientDao.insertClient(candidate)
+        if (insertResult == -1L) {
+            val existing = clientDao.getClientByPhoneKeySync(normalizedKey) ?: return
+            clientDao.updateClient(
+                existing.copy(
+                    displayName = candidate.displayName.ifBlank { existing.displayName },
+                    nameSource = candidate.nameSource,
+                    smsAnalysisMode = candidate.smsAnalysisMode,
+                    city = candidate.city ?: existing.city,
+                    district = candidate.district ?: existing.district,
+                    street = candidate.street ?: existing.street,
+                    buildingNumber = candidate.buildingNumber ?: existing.buildingNumber,
+                    unitNumber = candidate.unitNumber ?: existing.unitNumber,
+                    postalCode = candidate.postalCode ?: existing.postalCode,
+                    updatedAt = now
+                )
+            )
+        }
     }
 
     suspend fun updateClient(client: ClientEntity) {
         val normalizedKey = PhoneNumberNormalizer.normalizeKey(client.phoneKey)
         val display = PhoneNumberNormalizer.formatDisplay(normalizedKey)
-        clientDao.updateClient(client.copy(phoneKey = normalizedKey, phoneDisplay = display, updatedAt = System.currentTimeMillis()))
+        val updatedAt = System.currentTimeMillis()
+        val updatedClient = client.copy(phoneKey = normalizedKey, phoneDisplay = display, updatedAt = updatedAt)
+        database.withWriteTransaction {
+            clientDao.updateClient(updatedClient)
+            jobDao.updateActiveJobAddressSnapshotsForClient(
+                clientId = updatedClient.id,
+                city = updatedClient.city,
+                district = updatedClient.district,
+                street = updatedClient.street,
+                buildingNumber = updatedClient.buildingNumber,
+                unitNumber = updatedClient.unitNumber,
+                postalCode = updatedClient.postalCode,
+                updatedAt = updatedAt
+            )
+        }
     }
 
     suspend fun deleteClient(client: ClientEntity) {

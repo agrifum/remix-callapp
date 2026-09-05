@@ -1,6 +1,6 @@
 package com.example.data.repository
 
-import androidx.room.withTransaction
+import androidx.room3.withWriteTransaction
 import com.example.core.model.CallDirection
 import com.example.core.model.JobStatus
 import com.example.core.model.NameSource
@@ -23,6 +23,7 @@ import com.example.data.entity.JobAnalysisWindowEntity
 import com.example.data.entity.JobEntity
 import com.example.data.entity.NoteEntity
 import com.example.data.entity.TaskEntity
+import com.example.system.work.JobCompletionScheduler
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -52,7 +53,8 @@ class CallDraftRepository(
     private val jobDao: JobDao,
     private val windowDao: JobAnalysisWindowDao,
     private val taskDao: TaskDao,
-    private val serviceDao: ServiceDao
+    private val serviceDao: ServiceDao,
+    private val jobCompletionScheduler: JobCompletionScheduler? = null
 ) {
 
     enum class SessionState {
@@ -304,7 +306,7 @@ class CallDraftRepository(
         }
         if (draft.noteText.isNotBlank()) {
             val key = PhoneNumberNormalizer.normalizeKey(draft.phoneKey)
-            database.withTransaction {
+            database.withWriteTransaction {
                 val note = NoteEntity(
                     id = UUID.randomUUID().toString(),
                     phoneKey = key,
@@ -363,8 +365,9 @@ class CallDraftRepository(
         if (isSessionCommitted(request.callSessionId)) return
         val key = PhoneNumberNormalizer.normalizeKey(request.phone)
         val now = System.currentTimeMillis()
+        val jobsToSchedule = mutableListOf<JobEntity>()
 
-        database.withTransaction {
+        database.withWriteTransaction {
             var clientId: String? = null
             val existingClient = clientDao.getClientByPhoneKeySync(key)
 
@@ -382,8 +385,12 @@ class CallDraftRepository(
                         createdAt = now,
                         updatedAt = now
                     )
-                    clientDao.insertClient(newClient)
-                    clientId = newClientId
+                    val insertResult = clientDao.insertClient(newClient)
+                    clientId = if (insertResult == -1L) {
+                        clientDao.getClientByPhoneKeySync(key)?.id ?: newClientId
+                    } else {
+                        newClientId
+                    }
                 } else {
                     clientId = existingClient.id
                 }
@@ -449,6 +456,7 @@ class CallDraftRepository(
                     updatedAt = now
                 )
                 jobDao.insertJob(job)
+                jobsToSchedule.add(job)
 
                 val window = JobAnalysisWindowEntity(
                     jobId = jobId,
@@ -463,6 +471,6 @@ class CallDraftRepository(
 
         // Mark committed only after successful transaction completion
         markSessionCommitted(request.callSessionId)
+        jobsToSchedule.forEach { jobCompletionScheduler?.scheduleCompletion(it) }
     }
 }
-

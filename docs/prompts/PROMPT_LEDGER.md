@@ -1,6 +1,6 @@
 # PROMPT_LEDGER
 
-Brak finalnych promptów implementacyjnych. Szablony nie są rekordami READY.
+Finalne prompty implementacyjne są wykonywalne wyłącznie przy statusie READY/EXECUTED oraz po sprawdzeniu exact HEAD i autoryzacji. Szablony nie są rekordami READY.
 
 | PROMPT ID | PHASE | STATUS | CREATED | SOURCE REQUIREMENTS | TECHNICAL SOURCES | SUPERSEDES | EXECUTION TARGET |
 |---|---|---|---|---|---|---|---|
@@ -16,6 +16,7 @@ Brak finalnych promptów implementacyjnych. Szablony nie są rekordami READY.
 | IMP-CORE-STABILITY-01-rev1 | CORE-STABILITY-01 | EXECUTED | 2026-09-04 | core stability repair; no product R-ID | AUD-BASE-2026-09-04, AUD-SMS-AI-JOB-LIFECYCLE-2026-09-04, CallDraftRepository, ReengagementRepository | none | Antigravity AI Pro |
 | IMP-MEGA-RUN-02 | MEGA-REPAIR-02 | EXECUTED | 2026-09-04 | SP-004..007, SP-013..021, SP-041..046, SP-066 | MASTER_SPEC.md, AUD-BASE-2026-09-04, AUD-SMS-AI-JOB-LIFECYCLE-2026-09-04 | none | Antigravity AI Pro |
 | IMP-MEGA-RUN-02R-r1 | MEGA-RUN-02R | EXECUTED | 2026-09-04 | TRACEABILITY SP-001..SP-068 1:1 audit, CI repair, static gap check | docs/core/TRACEABILITY.md, docs/core/MASTER_SPEC.md, .github/workflows/verify.yml, harness/build-log.md | none | Antigravity AI Pro |
+| IMP-V1-COHERENCE-REPAIR-r1 | V1-COHERENCE-REPAIR | READY | 2026-09-05 | verified remaining V1 defects across SP-002..SP-066; exact list in CP | CP-V1-COHERENCE-REPAIR-r1 + current first-party Android/Firebase docs where HOW is material | consolidates remaining post-runtime-recovery repair scope; historical prompts retained | GitHub Copilot Coding Agent / existing PR #13 |
 
 Statusy: DRAFT, READY, EXECUTED, SUPERSEDED, BLOCKED.
 
@@ -116,3 +117,40 @@ Przejścia: DRAFT→READY po researchu, spójnym CP i jednym PASS; DRAFT/READY�
 - REVIEW: PRV-MEGA-RUN-02R-r1 (PASS)
 - EXECUTION AUTHORIZATION: explicit user authorization (CALLUPP — MEGA RUN 02R FINAL AUDIT LOCK), 2026-09-04
 - HANDOFF/EVIDENCE: harness/build-log.md entry 2026-09-04; docs/audits/AUD-V1-POST-MEGA-RUN-02R.md (FINAL AUDIT LOCK: 60 PASS_STATIC, 4 PARTIAL, 1 FAIL, 3 REQUIRED/RESEARCH); local compileDebugKotlin PASS, testDebugUnitTest PASS, lintDebug PASS, git diff --check PASS; GitHub Actions CI PASS (Run 33920265236)
+
+### IMP-FINAL-MEGA-V1-r1 metadata (SUPERSEDED)
+- CP: CP-FINAL-MEGA-V1-r1
+- PT: none
+- BASE: 7434f24b7f78c5164db3e8d09237f77ca6a81fb8
+- END: final/v1-completion-20260904
+- REVIEW: PRV-FINAL-MEGA-V1-r1 (CONTROL-PLANE APPROVED)
+- EXECUTION AUTHORIZATION: explicit user authorization (CALLUPP — FINAL MEGA RUN 03), 2026-09-04
+- HANDOFF/EVIDENCE: superseded by CALLUPP-FINAL-MEGA-03R. The former 66 PASS claim was invalid because Hilt runtime, Firebase schema/model binding, onboarding sequence, and literal §65 coverage were incomplete.
+
+### CALLUPP-FINAL-MEGA-03R-SEMANTIC-REPAIR
+- STATUS: EXECUTED / LOCAL VERIFICATION PASS
+- BASE: 153a180746db9ffaafdeb0862e6c3ad6e7575224
+- SCOPE: Hilt runtime decoupling, Firebase AI Logic schema/model binding, App Check/Google Services wiring, §54 onboarding, literal §65 matrix and corrected audit
+- CONTROL STATUS: do not merge; do not start physical acceptance
+- EXTERNAL CONFIGURATION: EXTERNAL_CONFIGURATION_PENDING (`google-services.json` not present and not invented)
+- LOCAL EVIDENCE: single worker test PASS, containing class PASS, 111/111 unit tests PASS, compileDebugKotlin PASS, assembleDebug PASS, lintDebug PASS, git diff --check PASS, verify-local.ps1 PASS
+
+### IMP-RUNTIME-RECOVERY-V1-r1 metadata
+- STATUS: EXECUTED / RUNTIME_ENVIRONMENT_UNAVAILABLE
+- BASE: 4d133d0698657a9ebeb7ae6c6da4766d18d5c030
+- END: 6446844833bdc099e9bcf38e9b7f453b2debdb1e
+- SCOPE: Navigation 3 serialization repair, MainActivity startup instrumentation coverage, CI emulator runtime gate, evidence reclassification
+- CONTROL STATUS: do not merge; do not start physical acceptance
+- LOCAL EVIDENCE: `git diff --check` PASS; runtime/build tasks blocked by unresolved AGP plugin resolution (`com.android.application:9.4.0`) in this sandbox; runtime status recorded as `RUNTIME_ENVIRONMENT_UNAVAILABLE`
+- CI EVIDENCE: Android CI run `33960527673` for exact head `6446844833bdc099e9bcf38e9b7f453b2debdb1e` is `action_required` with no executed jobs yet.
+
+### IMP-V1-COHERENCE-REPAIR-r1 metadata
+- CP: `CP-V1-COHERENCE-REPAIR-r1`
+- PT: `IMPLEMENTATION_PROMPT_TEMPLATE.md` blob `9c9ba0a1c9cb618cd8627af4b0a6ce15a72d27b6`
+- AUDIT BASE: `0d2d7914fb9d4ce214d86358bae38ce930fc9f4c`
+- EXECUTION BASE: exact PR #13 HEAD must be pinned in the dispatch comment immediately after this Control Plane commit; branch must still contain the audit base lineage
+- REVIEW: `PRV-V1-COHERENCE-r1` (PASS)
+- EXECUTION AUTHORIZATION: explicit user authorization in CallUpp AI Control Plane, 2026-09-05
+- SCOPE: one coherent pre-physical V1 repair of the verified defect set in the CP; preserve all source-truth functions; close automatable evidence gaps; no merge/physical acceptance
+- CURRENT EVIDENCE: Android CI #65 (`33965849003`) failed in `verify` on one timing-sensitive SMS test; runtime-startup skipped; no runtime PASS claimed
+- HANDOFF/EVIDENCE: pending execution on existing PR #13

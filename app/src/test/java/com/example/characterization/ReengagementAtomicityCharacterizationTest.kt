@@ -1,7 +1,7 @@
 package com.example.characterization
 
 import android.content.Context
-import androidx.room.Room
+import androidx.room3.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.model.JobStatus
 import com.example.core.model.ReengagementSource
@@ -50,7 +50,7 @@ class ReengagementAtomicityCharacterizationTest {
             database = database,
             reengagementDao = database.reengagementEventDao(),
             jobDao = database.jobDao(),
-            jobRepository = jobRepository
+            windowDao = database.jobAnalysisWindowDao()
         )
     }
 

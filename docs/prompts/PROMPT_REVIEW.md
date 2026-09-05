@@ -1,6 +1,6 @@
 # PROMPT_REVIEW
 
-Właściciel zapisów pojedynczych audytów przyszłych promptów. Kontrakt w PROMPT_CONTRACT, procedura w REVIEW_PROMPT_TEMPLATE. Obecnie brak promptów do oceny; nie wpisano fikcyjnego PASS.
+Właściciel zapisów pojedynczych audytów przyszłych promptów. Kontrakt w PROMPT_CONTRACT, procedura w REVIEW_PROMPT_TEMPLATE. PASS oznacza wyłącznie zgodność promptu z bramką Control Plane; nie jest odbiorem aplikacji.
 
 | Review ID | Prompt ID/revision | PT/CP/base commit | Date | PASS/BLOCKED | Findings | Corrections | Reviewer role |
 |---|---|---|---|---|---|---|---|
@@ -13,6 +13,7 @@ Właściciel zapisów pojedynczych audytów przyszłych promptów. Kontrakt w PR
 | PRV-RSCH-CALENDAR-r2 | RSCH-CALENDAR-CONSISTENCY-r2 | PROMPT_TEMPLATE blob 7c095129a7f2d2d941fb6d1f29738306b93e3891 / CP-RSCH-CALENDAR-r2 / acf2cf1f88bc9f6db8ca52c4e4619b16634890f7 | 2026-09-04 | PASS | none blocking; reauthorized successor to r1 from blocked pack | none | CallUpp AI Control Plane |
 | PRV-RSCH-TELEPHONY-r2 | RSCH-TELEPHONY-OUTGOING-r2 | PROMPT_TEMPLATE blob 7c095129a7f2d2d941fb6d1f29738306b93e3891 / CP-RSCH-TELEPHONY-r2 / acf2cf1f88bc9f6db8ca52c4e4619b16634890f7 | 2026-09-04 | PASS | none blocking; reauthorized successor to r1 from blocked pack | none | CallUpp AI Control Plane |
 | PRV-AUD-SMS-JOB-r2 | AUD-SMS-JOB-LIFECYCLE-r2 | PROMPT_TEMPLATE blob 7c095129a7f2d2d941fb6d1f29738306b93e3891 / CP-AUD-SMS-JOB-r2 / acf2cf1f88bc9f6db8ca52c4e4619b16634890f7 | 2026-09-04 | PASS | none blocking; reauthorized successor to r1 from blocked pack | none | CallUpp AI Control Plane |
+| PRV-V1-COHERENCE-r1 | IMP-V1-COHERENCE-REPAIR-r1 | IMPLEMENTATION_PROMPT_TEMPLATE blob 9c9ba0a1c9cb618cd8627af4b0a6ce15a72d27b6 / CP-V1-COHERENCE-REPAIR-r1 / audit base 0d2d7914fb9d4ce214d86358bae38ce930fc9f4c | 2026-09-05 | PASS | no blocking product contradiction; dispatch must pin exact current HEAD after Control Plane commit; Note↔Task permanent-delete edge is genuinely source-underdetermined but isolated/non-blocking | CP marks U-COH-01 as stop-only-that-subchange and requires exact dispatch HEAD; remote repair loop bounded | CallUpp AI Control Plane |
 
 Jeden audyt na konkretny prompt. Popraw tylko wykryte problemy. Nie zastępuje to odbioru wykonanej aplikacji w przyszłych fazach.
 

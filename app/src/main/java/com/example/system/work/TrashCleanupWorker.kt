@@ -3,7 +3,7 @@ package com.example.system.work
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.example.CallUppApplication
+import com.example.core.di.runtimeDependencies
 
 /**
  * TrashCleanupWorker: Cleans up soft-deleted items (notes, tasks, jobs)
@@ -15,13 +15,13 @@ class TrashCleanupWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
-        val app = applicationContext as? CallUppApplication ?: return Result.failure()
+        val deps = applicationContext.runtimeDependencies()
         val cutoffTime = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
 
         return try {
-            app.container.noteDao.purgeDeletedNotesOlderThan(cutoffTime)
-            app.container.taskDao.purgeDeletedTasksOlderThan(cutoffTime)
-            app.container.jobDao.purgeDeletedJobsOlderThan(cutoffTime)
+            deps.noteDao().purgeDeletedNotesOlderThan(cutoffTime)
+            deps.taskDao().purgeDeletedTasksOlderThan(cutoffTime)
+            deps.jobDao().purgeDeletedJobsOlderThan(cutoffTime)
             Result.success()
         } catch (e: Exception) {
             Result.retry()

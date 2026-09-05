@@ -1,7 +1,7 @@
-﻿package com.example.characterization
+package com.example.characterization
 
 import android.content.Context
-import androidx.room.Room
+import androidx.room3.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.model.JobStatus
 import com.example.core.model.WindowReason
@@ -40,7 +40,7 @@ class JobLifecycleCharacterizationTest {
     private lateinit var testClientId: String
 
     @Before
-    fun setUp() = runBlocking {
+    fun setUp() = runBlocking<Unit> {
         val context = ApplicationProvider.getApplicationContext<Context>()
         database = Room.inMemoryDatabaseBuilder(context, CallUppDatabase::class.java)
             .allowMainThreadQueries()
@@ -246,6 +246,28 @@ class JobLifecycleCharacterizationTest {
                 timeMinute = targetTimeMinute
             )
         )
+    }
+
+    @Test
+    fun getActiveJobsForClientSync_includesArchivedActiveJobsForBusinessRules() = runBlocking {
+        val visibleActiveJobId = repository.createJob(
+            JobEntity(
+                clientId = testClientId,
+                status = JobStatus.ACTIVE,
+                isArchived = false
+            )
+        )
+        val archivedActiveJobId = repository.createJob(
+            JobEntity(
+                clientId = testClientId,
+                status = JobStatus.ACTIVE,
+                isArchived = true
+            )
+        )
+
+        val activeJobs = repository.getActiveJobsForClientSync(testClientId)
+        assertTrue(activeJobs.any { it.id == visibleActiveJobId })
+        assertTrue(activeJobs.any { it.id == archivedActiveJobId })
     }
 
     @Test

@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.example.core.model.TaskStatus
+import com.example.core.phone.PhoneNumberNormalizer
 import com.example.core.time.DateTimeFormatters
 import com.example.data.entity.NoteEntity
 import com.example.data.repository.NoteRepository
@@ -61,6 +62,7 @@ fun TasksScreen(
 
     var showAddTaskDialog by remember { mutableStateOf(false) }
     var newTaskText by remember { mutableStateOf("") }
+    var newTaskPhone by remember { mutableStateOf("") }
 
     Box(modifier = modifier.fillMaxSize()) {
         if (tasksWithNotes.isEmpty()) {
@@ -177,10 +179,21 @@ fun TasksScreen(
 
     if (showAddTaskDialog) {
         AlertDialog(
-            onDismissRequest = { showAddTaskDialog = false },
+            onDismissRequest = {
+                showAddTaskDialog = false
+                newTaskText = ""
+                newTaskPhone = ""
+            },
             title = { Text("Nowe Zadanie") },
             text = {
                 Column {
+                    OutlinedTextField(
+                        value = newTaskPhone,
+                        onValueChange = { newTaskPhone = it },
+                        label = { Text("Numer telefonu") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newTaskText,
                         onValueChange = { newTaskText = it },
@@ -193,18 +206,20 @@ fun TasksScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        if (newTaskText.isNotBlank()) {
+                        val normalizedPhone = PhoneNumberNormalizer.normalizeKey(newTaskPhone)
+                        if (newTaskText.isNotBlank() && normalizedPhone.isNotBlank()) {
                             scope.launch {
                                 val noteId = UUID.randomUUID().toString()
                                 val note = NoteEntity(
                                     id = noteId,
-                                    phoneKey = "+48000000000",
+                                    phoneKey = normalizedPhone,
                                     rawText = newTaskText.trim()
                                 )
                                 noteRepository.insertNote(note)
                                 taskRepository.createTask(noteId)
                                 showAddTaskDialog = false
                                 newTaskText = ""
+                                newTaskPhone = ""
                             }
                         }
                     }
@@ -213,7 +228,11 @@ fun TasksScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAddTaskDialog = false }) {
+                TextButton(onClick = {
+                    showAddTaskDialog = false
+                    newTaskText = ""
+                    newTaskPhone = ""
+                }) {
                     Text("Anuluj")
                 }
             }

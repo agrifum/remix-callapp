@@ -1,10 +1,10 @@
 package com.example.data.dao
 
-import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
-import androidx.room.Update
+import androidx.room3.Dao
+import androidx.room3.Insert
+import androidx.room3.OnConflictStrategy
+import androidx.room3.Query
+import androidx.room3.Update
 import com.example.core.model.TriggerState
 import com.example.data.entity.SmsTriggerEntity
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +29,9 @@ interface SmsTriggerDao {
 
     @Query("SELECT * FROM sms_triggers WHERE id = :id LIMIT 1")
     suspend fun getTriggerById(id: String): SmsTriggerEntity?
+
+    @Query("SELECT * FROM sms_triggers WHERE clientId = :clientId ORDER BY receivedAt DESC LIMIT 1")
+    suspend fun getLatestTriggerForClient(clientId: String): SmsTriggerEntity?
 
     @Query("UPDATE sms_triggers SET state = :state WHERE id = :id")
     suspend fun updateState(id: String, state: TriggerState)

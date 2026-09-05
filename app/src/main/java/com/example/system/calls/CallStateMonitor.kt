@@ -9,8 +9,11 @@ import android.provider.Settings
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
-import com.example.CallUppApplication
 import com.example.core.model.CallDirection
+import com.example.core.di.runtimeDependencies
+import com.example.data.repository.CallDraftRepository
+import com.example.data.repository.ClientRepository
+import com.example.data.repository.ReengagementRepository
 import com.example.system.overlay.CallOverlayService
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -24,7 +27,13 @@ import java.util.UUID
  * - At OFFHOOK: Reads identity from ActiveCallSession and starts CallOverlayService (both incoming & outgoing)
  * - At IDLE: Clears ActiveCallSession, stops CallOverlayService, commits draft, and handles reengagement
  */
-class CallStateMonitor(private val context: Context) {
+class CallStateMonitor(
+    private val context: Context,
+    private val appScope: kotlinx.coroutines.CoroutineScope,
+    private val callDraftRepository: CallDraftRepository,
+    private val clientRepository: ClientRepository,
+    private val reengagementRepository: ReengagementRepository
+) {
 
     private val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
 
@@ -91,8 +100,6 @@ class CallStateMonitor(private val context: Context) {
     }
 
     private fun handleCallStateChanged(state: Int) {
-        val app = context.applicationContext as? CallUppApplication ?: return
-
         when (state) {
             TelephonyManager.CALL_STATE_RINGING -> {
                 hasObservedActiveCallState = true
@@ -190,8 +197,8 @@ class CallStateMonitor(private val context: Context) {
 
                 // Invariant: If call ends without manual save, commit non-empty draft note text
                 if (finishedSessionId != null) {
-                    app.container.appScope.launch {
-                        app.container.callDraftRepository.flushAndCommitOnCallEnd(
+                    appScope.launch {
+                        callDraftRepository.flushAndCommitOnCallEnd(
                             callSessionId = finishedSessionId,
                             latestDraft = latestDraft,
                             callDirection = direction,
@@ -200,9 +207,9 @@ class CallStateMonitor(private val context: Context) {
 
                         // Check for reengagement event if incoming call from client with completed/closed jobs
                         if (!finishedPhone.isNullOrBlank() && direction == CallDirection.INCOMING) {
-                            val client = app.container.clientRepository.getClientByPhoneKeySync(finishedPhone)
+                            val client = clientRepository.getClientByPhoneKeySync(finishedPhone)
                             if (client != null) {
-                                app.container.reengagementRepository.checkAndCreateReengagementEvent(
+                                reengagementRepository.checkAndCreateReengagementEvent(
                                     clientId = client.id,
                                     source = com.example.core.model.ReengagementSource.INCOMING_CALL
                                 )

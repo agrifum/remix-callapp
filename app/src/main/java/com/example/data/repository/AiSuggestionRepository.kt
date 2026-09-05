@@ -1,8 +1,9 @@
 package com.example.data.repository
 
-import androidx.room.withTransaction
+import androidx.room3.withWriteTransaction
 import com.example.core.model.SuggestionStatus
 import com.example.core.model.SuggestionType
+import com.example.core.model.TimeQualifier
 import com.example.data.database.CallUppDatabase
 import com.example.data.dao.AiSuggestionDao
 import com.example.data.dao.ClientDao
@@ -53,7 +54,7 @@ class AiSuggestionRepository(
         val unit = json.optString("unitNumber").takeIf { it.isNotBlank() }
         val postal = json.optString("postalCode").takeIf { it.isNotBlank() }
 
-        database.withTransaction {
+        database.withWriteTransaction {
             val client = clientDao.getClientByIdSync(clientId)
             if (client != null) {
                 val updatedClient = client.copy(
@@ -94,16 +95,24 @@ class AiSuggestionRepository(
         if (suggestion.type != SuggestionType.TERM_CHANGE) return
 
         val json = JSONObject(suggestion.proposedValueJson)
-        val dateEpochDay = if (json.has("dateEpochDay")) json.optLong("dateEpochDay") else null
-        val timeMinute = if (json.has("timeMinute")) json.optInt("timeMinute") else null
+        val hasDate = json.has("dateEpochDay")
+        val hasTime = json.has("timeMinute")
+        val dateEpochDay = if (hasDate && !json.isNull("dateEpochDay")) json.optLong("dateEpochDay") else null
+        val timeMinute = if (hasTime && !json.isNull("timeMinute")) json.optInt("timeMinute") else null
+        val parsedQualifier = json.optString("qualifier")
+            .takeIf { it.isNotBlank() }
+            ?.let { runCatching { TimeQualifier.valueOf(it) }.getOrNull() }
 
         var updatedJob: JobEntity? = null
-        database.withTransaction {
+        database.withWriteTransaction {
             val job = jobDao.getJobByIdSync(jobId)
             if (job != null) {
+                val preliminaryChanged = hasDate || hasTime || parsedQualifier != null
                 val updated = job.copy(
-                    preliminaryDateEpochDay = dateEpochDay ?: job.preliminaryDateEpochDay,
-                    preliminaryTimeMinute = timeMinute ?: job.preliminaryTimeMinute,
+                    preliminaryDateEpochDay = if (hasDate) dateEpochDay else job.preliminaryDateEpochDay,
+                    preliminaryTimeMinute = if (hasTime) timeMinute else job.preliminaryTimeMinute,
+                    preliminaryTimeQualifier = parsedQualifier ?: job.preliminaryTimeQualifier,
+                    confirmedStartAt = if (preliminaryChanged) null else job.confirmedStartAt,
                     updatedAt = System.currentTimeMillis()
                 )
                 jobDao.updateJob(updated)
@@ -111,12 +120,24 @@ class AiSuggestionRepository(
             }
             suggestionDao.resolveSuggestion(suggestionId, SuggestionStatus.ACCEPTED)
         }
-        if (updatedJob != null) {
-            scheduler?.scheduleCompletion(updatedJob!!)
-            if (updatedJob!!.calendarEventId != null && calendarManager != null) {
+        var finalJob = updatedJob
+        if (finalJob != null) {
+            if (finalJob!!.status == com.example.core.model.JobStatus.ACTIVE && finalJob!!.deletedAt == null) {
+                scheduler?.scheduleCompletion(finalJob!!)
+            } else {
+                scheduler?.cancelCompletion(finalJob!!.id)
+            }
+            if (finalJob!!.calendarEventId != null && calendarManager != null) {
                 try {
-                    val client = clientDao.getClientByIdSync(updatedJob!!.clientId)
-                    calendarManager.updateEvent(updatedJob!!.calendarEventId!!, updatedJob!!, client)
+                    val eventId = finalJob!!.calendarEventId!!
+                    val client = clientDao.getClientByIdSync(finalJob!!.clientId)
+                    if (finalJob!!.confirmedStartAt != null) {
+                        calendarManager.updateEvent(eventId, finalJob!!, client)
+                    } else if (calendarManager.deleteEvent(eventId)) {
+                        val withoutEvent = finalJob!!.copy(calendarEventId = null, updatedAt = System.currentTimeMillis())
+                        jobDao.updateJob(withoutEvent)
+                        finalJob = withoutEvent
+                    }
                 } catch (_: Exception) {}
             }
         }
@@ -129,7 +150,7 @@ class AiSuggestionRepository(
         val json = JSONObject(suggestion.proposedValueJson)
         val info = json.optString("contactInfo")
 
-        database.withTransaction {
+        database.withWriteTransaction {
             val client = clientDao.getClientByIdSync(clientId)
             if (client != null && info.isNotBlank()) {
                 val current = client.additionalInfo

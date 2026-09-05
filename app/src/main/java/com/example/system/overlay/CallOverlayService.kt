@@ -30,12 +30,18 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
-import com.example.CallUppApplication
 import com.example.R
 import com.example.core.model.CallDirection
 import com.example.core.phone.PhoneNumberNormalizer
 import com.example.data.entity.CallDraftEntity
 import com.example.data.repository.OverlayCommitRequest
+import com.example.data.repository.CallDraftRepository
+import com.example.data.repository.ClientRepository
+import com.example.data.repository.NoteRepository
+import com.example.data.repository.ServiceRepository
+import com.example.system.contacts.ContactLookupRepository
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -55,7 +61,14 @@ import java.util.Locale
  * during an active phone call (both incoming and outgoing).
  * Commits to Room when saved or dismissed.
  */
+@AndroidEntryPoint
 class CallOverlayService : Service() {
+    @Inject lateinit var appScope: CoroutineScope
+    @Inject lateinit var clientRepository: ClientRepository
+    @Inject lateinit var noteRepository: NoteRepository
+    @Inject lateinit var serviceRepository: ServiceRepository
+    @Inject lateinit var callDraftRepository: CallDraftRepository
+    @Inject lateinit var contactLookupRepository: ContactLookupRepository
 
     companion object {
         const val ACTION_SHOW_OVERLAY = "com.example.action.SHOW_OVERLAY"
@@ -168,15 +181,13 @@ class CallOverlayService : Service() {
     private fun showOverlayWindow() {
         if (overlayView != null) return // Already showing
 
-        val app = application as? CallUppApplication ?: return
-
         serviceScope.launch {
             val key = PhoneNumberNormalizer.normalizeKey(currentPhoneKey)
             val display = PhoneNumberNormalizer.formatDisplay(key)
-            val client = app.container.clientRepository.getClientByPhoneKeySync(key)
-            val pastNotes = app.container.noteRepository.getActiveNotesForPhoneSync(key)
-            val services = app.container.serviceRepository.activeServices.first()
-            val existingDraft = app.container.callDraftRepository.getDraftSync(currentSessionId)
+            val client = clientRepository.getClientByPhoneKeySync(key)
+            val pastNotes = noteRepository.getActiveNotesForPhoneSync(key)
+            val services = serviceRepository.activeServices.first()
+            val existingDraft = callDraftRepository.getDraftSync(currentSessionId)
 
             val maxAllowedHeight = (resources.displayMetrics.heightPixels * 0.70).toInt()
             val container = OverlayContainer(this@CallOverlayService, maxAllowedHeight)
@@ -278,15 +289,15 @@ class CallOverlayService : Service() {
             fun saveCurrentDraft() {
                 if (isCommitted) return
                 val draft = buildCurrentDraft()
-                app.container.appScope.launch {
-                    app.container.callDraftRepository.saveDraft(draft)
+                appScope.launch {
+                    callDraftRepository.saveDraft(draft)
                 }
             }
 
             fun scheduleDraftSave() {
                 if (isRestoringDraft || isCommitted) return
                 draftSaveJob?.cancel()
-                draftSaveJob = app.container.appScope.launch {
+                draftSaveJob = appScope.launch {
                     delay(500)
                     saveCurrentDraft()
                 }
@@ -612,12 +623,12 @@ class CallOverlayService : Service() {
                 releaseOverlayFocus()
                 val noteText = overlayNote.text?.toString() ?: ""
 
-                app.container.callDraftRepository.tryClaimManualCommit(currentSessionId)
+                callDraftRepository.tryClaimManualCommit(currentSessionId)
 
-                app.container.appScope.launch {
+                appScope.launch {
                     val clientDisplayName = when {
                         client != null -> client.displayName
-                        isMarkAsClient -> app.container.contactLookupRepository.resolveDisplayName(key)
+                        isMarkAsClient -> contactLookupRepository.resolveDisplayName(key)
                         else -> null
                     }
 
@@ -635,7 +646,7 @@ class CallOverlayService : Service() {
                         callDirection = currentDirection,
                         callTimestamp = currentCallTimestamp
                     )
-                    app.container.callDraftRepository.commitOverlaySession(req)
+                    callDraftRepository.commitOverlaySession(req)
                 }
                 hideOverlayWindow()
                 stopSelf()
@@ -659,8 +670,8 @@ class CallOverlayService : Service() {
                 val draft = currentDraftProvider?.invoke()
                 currentDraftProvider = null
                 if (draft != null && draft.noteText.isNotBlank()) {
-                    app.container.appScope.launch {
-                        app.container.callDraftRepository.saveDraft(draft)
+                    appScope.launch {
+                        callDraftRepository.saveDraft(draft)
                     }
                 }
                 hideOverlayWindow()
@@ -753,4 +764,3 @@ class CallOverlayService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 }
-

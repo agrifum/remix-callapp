@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
-import com.example.CallUppApplication
 import com.example.core.model.ReengagementSource
 import com.example.core.model.SmsAnalysisMode
 import com.example.core.model.TriggerState
@@ -12,6 +11,16 @@ import com.example.core.phone.PhoneNumberNormalizer
 import com.example.data.entity.SmsTriggerEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import com.example.data.dao.JobAnalysisWindowDao
+import com.example.data.dao.SmsTriggerDao
+import com.example.data.preferences.AppPreferences
+import com.example.data.repository.ClientRepository
+import com.example.data.repository.JobRepository
+import com.example.data.repository.ReengagementRepository
+import com.example.system.work.SmsTriggerRecovery
+import kotlinx.coroutines.CoroutineScope
 import java.util.UUID
 
 /**
@@ -23,15 +32,23 @@ import java.util.UUID
  *   client reengagement for inactive clients is evaluated using metadata only without accessing message body.
  * - Raw SMS body is NEVER read, joined, parsed, or persisted by this receiver.
  */
+@AndroidEntryPoint
 class SmsReceiver : BroadcastReceiver() {
+    @Inject lateinit var appScope: CoroutineScope
+    @Inject lateinit var clientRepository: ClientRepository
+    @Inject lateinit var jobRepository: JobRepository
+    @Inject lateinit var reengagementRepository: ReengagementRepository
+    @Inject lateinit var appPreferences: AppPreferences
+    @Inject lateinit var windowDao: JobAnalysisWindowDao
+    @Inject lateinit var smsTriggerDao: SmsTriggerDao
+    @Inject lateinit var smsTriggerRecovery: SmsTriggerRecovery
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
-        val app = context.applicationContext as? CallUppApplication ?: return
         val pendingResult = goAsync()
 
-        app.container.appScope.launch {
+        appScope.launch {
             try {
                 // 1. Parse SMS metadata ONLY (originating address and timestamp). Do NOT read raw SMS payload.
                 val msgs = Telephony.Sms.Intents.getMessagesFromIntent(intent)
@@ -44,13 +61,13 @@ class SmsReceiver : BroadcastReceiver() {
                 val timestamp = msgs[0].timestampMillis
 
                 // 2. Resolve client WITHOUT reading SMS body
-                val client = app.container.clientRepository.getClientByPhoneKeySync(phoneKey) ?: return@launch
+                val client = clientRepository.getClientByPhoneKeySync(phoneKey) ?: return@launch
 
                 // 3. Inspect ACTIVE jobs. If no active jobs, evaluate reengagement unconditionally (no AI needed)
-                val activeJobs = app.container.jobRepository.getActiveJobsForClientSync(client.id)
+                val activeJobs = jobRepository.getActiveJobsForClientSync(client.id)
                 if (activeJobs.isEmpty()) {
                     // Reengagement does not require AI analysis or SMS body read
-                    app.container.reengagementRepository.checkAndCreateReengagementEvent(
+                    reengagementRepository.checkAndCreateReengagementEvent(
                         clientId = client.id,
                         source = ReengagementSource.INCOMING_SMS
                     )
@@ -58,7 +75,7 @@ class SmsReceiver : BroadcastReceiver() {
                 }
 
                 // 4. ACTIVE jobs exist: AI analysis settings gate trigger & worker creation
-                val globalEnabled = app.container.appPreferences.smsAnalysisGlobalEnabled.first()
+                val globalEnabled = appPreferences.smsAnalysisGlobalEnabled.first()
                 if (!globalEnabled) return@launch
 
                 if (client.smsAnalysisMode == SmsAnalysisMode.DISABLED) return@launch
@@ -66,7 +83,7 @@ class SmsReceiver : BroadcastReceiver() {
                 // 5. Client must have active jobs with open analysis window covering received timestamp
                 var hasEligibleWindow = false
                 for (job in activeJobs) {
-                    val window = app.container.windowDao.getOpenWindowForJob(job.id)
+                    val window = windowDao.getOpenWindowForJob(job.id)
                     if (window != null && window.endedAt == null && timestamp >= window.startedAt) {
                         hasEligibleWindow = true
                         break
@@ -83,10 +100,10 @@ class SmsReceiver : BroadcastReceiver() {
                     receivedAt = timestamp,
                     state = TriggerState.PENDING
                 )
-                app.container.smsTriggerDao.insertTrigger(trigger)
+                smsTriggerDao.insertTrigger(trigger)
 
                 // 6. Delegate analysis to WorkManager via SmsTriggerRecovery helper
-                app.container.smsTriggerRecovery.enqueueOrDiscard(trigger)
+                smsTriggerRecovery.enqueueOrDiscard(trigger)
             } catch (_: Exception) {
                 // Fail-safe non-blocking execution
             } finally {
