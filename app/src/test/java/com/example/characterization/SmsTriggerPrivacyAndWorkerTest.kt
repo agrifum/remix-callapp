@@ -375,7 +375,7 @@ class SmsTriggerPrivacyAndWorkerTest {
         val receiver = SmsReceiver()
         receiver.onReceive(app, createSmsIntent())
 
-        val trigger = withTimeout(5000) {
+        val trigger = withTimeout<SmsTriggerEntity>(5000) {
             while (true) {
                 val latest = app.container.smsTriggerDao.getLatestTriggerForClient(clientId)
                 if (latest != null) return@withTimeout latest
