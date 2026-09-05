@@ -160,7 +160,7 @@ All 20 tests must be performed on a physical Android device (API 31–36, e.g. A
 ### TC-20: Release APK Verification
 - **Requirement:** Build release APK przechodzi wszystkie testy krytyczne (§66.20).
 - **Procedure:**
-  1. Build signed/debug APK: `./gradlew :app:assembleDebug`.
+  1. Build release APK: `./gradlew :app:assembleRelease`.
   2. Install on physical device via `adb install -r`.
   3. Verify application launches, renders onboarding on first run, and completes setup.
-- **Pass Criteria:** Application runs flawlessly with zero crashes.
+- **Pass Criteria:** Release APK passes critical runtime scenarios with zero crashes.

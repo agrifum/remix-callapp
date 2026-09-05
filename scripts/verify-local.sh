@@ -25,8 +25,9 @@ fi
 
 chmod +x gradlew
 
-echo "Executing Gradle verification: assembleDebug, testDebugUnitTest, lintDebug..."
+echo "Executing Gradle verification: compileDebugKotlin, assembleDebug, testDebugUnitTest, lintDebug..."
 ./gradlew --no-daemon \
+  :app:compileDebugKotlin \
   :app:assembleDebug \
   :app:testDebugUnitTest \
   :app:lintDebug

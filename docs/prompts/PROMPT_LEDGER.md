@@ -133,3 +133,10 @@ Przejścia: DRAFT→READY po researchu, spójnym CP i jednym PASS; DRAFT/READY�
 - CONTROL STATUS: do not merge; do not start physical acceptance
 - EXTERNAL CONFIGURATION: EXTERNAL_CONFIGURATION_PENDING (`google-services.json` not present and not invented)
 - LOCAL EVIDENCE: single worker test PASS, containing class PASS, 111/111 unit tests PASS, compileDebugKotlin PASS, assembleDebug PASS, lintDebug PASS, git diff --check PASS, verify-local.ps1 PASS
+
+### IMP-RUNTIME-RECOVERY-V1-r1 metadata
+- STATUS: EXECUTED / RUNTIME_ENVIRONMENT_UNAVAILABLE
+- BASE: 4d133d0698657a9ebeb7ae6c6da4766d18d5c030
+- SCOPE: Navigation 3 serialization repair, MainActivity startup instrumentation coverage, CI emulator runtime gate, evidence reclassification
+- CONTROL STATUS: do not merge; do not start physical acceptance
+- LOCAL EVIDENCE: `git diff --check` PASS; runtime/build tasks blocked by unresolved AGP plugin resolution (`com.android.application:9.4.0`) in this sandbox; runtime status recorded as `RUNTIME_ENVIRONMENT_UNAVAILABLE`

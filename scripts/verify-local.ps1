@@ -46,8 +46,8 @@ if (-not (Test-Path "debug.keystore")) {
     Write-Host "debug.keystore generated successfully."
 }
 
-Write-Host "Executing Gradle verification: assembleDebug, testDebugUnitTest, lintDebug..."
-& .\gradlew.bat --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+Write-Host "Executing Gradle verification: compileDebugKotlin, assembleDebug, testDebugUnitTest, lintDebug..."
+& .\gradlew.bat --no-daemon :app:compileDebugKotlin :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

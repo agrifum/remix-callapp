@@ -1,24 +1,22 @@
-# Final V1 Comprehensive Release-Candidate Audit (SP-001 – SP-068) — FINAL MEGA RUN 03
+# Final V1 Comprehensive Release-Candidate Audit (SP-001 – SP-068) — FINAL MEGA RUN 03R + RUNTIME RECOVERY
 
-AUDIT BASE: 153a180746db9ffaafdeb0862e6c3ad6e7575224
-AUDIT TYPE: CORRECTED SEMANTIC REPAIR AUDIT
+AUDIT BASE: 4d133d0698657a9ebeb7ae6c6da4766d18d5c030
+AUDIT TYPE: RUNTIME RECOVERY ADDENDUM
 SUPERSEDES: docs/audits/AUD-V1-POST-MEGA-RUN-02R.md
 CANONICAL MAPPING: docs/core/TRACEABILITY.md + docs/core/MASTER_SPEC.md (§1 – §68)
 REPOSITORY: agrifum/remix-callapp
 BRANCH: final/v1-completion-20260904
-PROMPT ID: IMP-FINAL-MEGA-V1-r1
-DATE: 2026-09-04
+PROMPT ID: IMP-RUNTIME-RECOVERY-V1-r1
+DATE: 2026-09-05
 
 ---
 
 ## 1. Executive Summary & Provenance
 
-This authoritative audit concludes **FINAL MEGA RUN 03** (`IMP-FINAL-MEGA-V1-r1`).
-The previous `STATIC_IMPLEMENTATION_COMPLETE_RUNTIME_PENDING` handoff is rejected.
-This corrected audit records the semantic repair state; it does not authorize
-physical acceptance or merge.
+This authoritative addendum records **Runtime Recovery & Verification** (`IMP-RUNTIME-RECOVERY-V1-r1`) on top of FINAL MEGA RUN 03R.
+Physical acceptance and merge remain unauthorized.
 
-Current state: **`SEMANTIC_REPAIR_IMPLEMENTED_LOCAL_VERIFIED`**.
+Current state: **`RUNTIME_GATE_ADDED_RUNTIME_ENVIRONMENT_UNAVAILABLE_LOCALLY`**.
 The 68-SP table below is retained as historical traceability, but stale PASS
 claims are superseded by the corrected findings in section 3A.
 
@@ -43,6 +41,15 @@ The full repository verification suite (`powershell -ExecutionPolicy Bypass -Fil
 3. **Automated Test Suite:** `:app:testDebugUnitTest --rerun` — PASS (**111/111 tests passed**, 0 failures, 0 errors, 0 skipped); the previously failing durable worker test now uses the deterministic test-only fake engine override while production remains Firebase-bound.
 4. **Static Analysis:** `:app:lintDebug` — PASS (0 errors)
 5. **Whitespace & Diff Gate:** `git diff --check HEAD^ HEAD` — PASS (clean formatting, single trailing newline at EOF)
+
+---
+
+## 2A. Runtime Recovery Addendum (2026-09-05)
+
+- Navigation 3 save-state defect repaired by enabling Kotlin serialization and marking `Screen` NavKey hierarchy as `@Serializable`.
+- Real startup instrumentation coverage was added in `app/src/androidTest/java/com/example/ExampleInstrumentedTest.kt` to launch `MainActivity`, assert initial onboarding render, and verify recreation resilience.
+- CI runtime gate was added in `.github/workflows/android-ci.yml` as `runtime-startup` using Android emulator execution of `:app:connectedDebugAndroidTest`.
+- Runtime execution in this sandbox is currently blocked before task graph execution by unresolved plugin resolution for `com.android.application:9.4.0`; therefore runtime outcome here is classified as `RUNTIME_ENVIRONMENT_UNAVAILABLE`, not PASS.
 
 ---
 
