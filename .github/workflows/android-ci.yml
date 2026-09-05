@@ -65,6 +65,9 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Ensure gradlew is executable
+        run: chmod +x ./gradlew
+
       - name: Build startup test artifacts
         run: ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
 
